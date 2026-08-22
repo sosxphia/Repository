@@ -413,6 +413,52 @@ async def create_focus_session(payload: FocusSessionCreate, authorization: Optio
     return {"ok": True, "xp_earned": xp, "duration_minutes": minutes}
 
 # ---------- Stats ----------
+@api_router.get("/weekly-recap")
+async def weekly_recap(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    end = now_utc()
+    start = end - timedelta(days=7)
+    goals_done = await db.goals.count_documents({
+        "user_id": user["user_id"],
+        "completed": True,
+        "completed_at": {"$gte": start},
+    })
+    plants_bloomed = await db.plants.count_documents({
+        "user_id": user["user_id"],
+        "bloomed_at": {"$gte": start},
+    })
+    plants_grown = await db.plants.count_documents({
+        "user_id": user["user_id"],
+        "created_at": {"$gte": start},
+    })
+    quests_done = await db.daily_quests.count_documents({
+        "user_id": user["user_id"],
+        "completed": True,
+        "completed_at": {"$gte": start},
+    })
+    # Focus minutes this week
+    pipeline = [
+        {"$match": {"user_id": user["user_id"], "created_at": {"$gte": start}}},
+        {"$group": {"_id": None, "total": {"$sum": "$duration_minutes"}}},
+    ]
+    focus_agg = await db.focus_sessions.aggregate(pipeline).to_list(1)
+    focus_minutes = focus_agg[0]["total"] if focus_agg else 0
+    focus_sessions = await db.focus_sessions.count_documents({
+        "user_id": user["user_id"],
+        "created_at": {"$gte": start},
+    })
+    return {
+        "week_start": start.date().isoformat(),
+        "week_end": end.date().isoformat(),
+        "goals_completed": goals_done,
+        "daily_quests_completed": quests_done,
+        "plants_bloomed": plants_bloomed,
+        "plants_grown": plants_grown,
+        "focus_minutes": focus_minutes,
+        "focus_sessions": focus_sessions,
+        "current_streak": user.get("streak_days", 0),
+    }
+
 @api_router.get("/stats")
 async def get_stats(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)

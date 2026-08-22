@@ -10,11 +10,14 @@ import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { apiFetch } from "@/src/lib/api";
 import { colors, spacing, radius } from "@/src/lib/theme";
-import { STAGE_EMOJI, STAGE_LABEL, Stage } from "@/src/lib/plant";
+import { STAGE_LABEL, Stage, Species, SPECIES_LIST, emojiFor } from "@/src/lib/plant";
+import { BloomCelebration } from "@/src/components/BloomCelebration";
+import { storage } from "@/src/utils/storage";
 
 type Plant = {
   plant_id: string;
   name: string;
+  species?: string;
   xp: number;
   is_current: boolean;
   stage: Stage;
@@ -30,7 +33,10 @@ export default function Garden() {
   const [refreshing, setRefreshing] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetName, setResetName] = useState("");
+  const [resetSpecies, setResetSpecies] = useState<Species>("succulent");
   const [resetting, setResetting] = useState(false);
+  const [bloomVisible, setBloomVisible] = useState(false);
+  const [bloomPlant, setBloomPlant] = useState<Plant | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -40,6 +46,17 @@ export default function Garden() {
       ]);
       setCurrent(cur);
       setPlants(all);
+      // Bloom celebration: show once per plant when it hits bloom
+      if (cur && cur.stage === "bloom") {
+        const seen = (await storage.getItem<string>("bloom_seen", "")) || "";
+        const list = seen.split(",").filter(Boolean);
+        if (!list.includes(cur.plant_id)) {
+          setBloomPlant(cur);
+          setBloomVisible(true);
+          list.push(cur.plant_id);
+          await storage.setItem("bloom_seen", list.join(","));
+        }
+      }
     } catch (e) {
       console.log("garden load", e);
     } finally {
@@ -55,6 +72,7 @@ export default function Garden() {
   const openReset = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setResetName("");
+    setResetSpecies("succulent");
     setResetOpen(true);
   };
 
@@ -65,7 +83,7 @@ export default function Garden() {
     try {
       await apiFetch(`/plants/${current.plant_id}/reset`, {
         method: "POST",
-        body: JSON.stringify({ name: resetName.trim() || "New Plant" }),
+        body: JSON.stringify({ name: resetName.trim() || "New Plant", species: resetSpecies }),
       });
       setResetOpen(false);
       load();
@@ -111,7 +129,7 @@ export default function Garden() {
           <View style={styles.stageBadge}>
             <Text style={styles.stageBadgeText}>{STAGE_LABEL[current?.stage || "seed"]}</Text>
           </View>
-          <Text style={styles.heroEmoji} testID="current-plant-emoji">{STAGE_EMOJI[current?.stage || "seed"]}</Text>
+          <Text style={styles.heroEmoji} testID="current-plant-emoji">{emojiFor(current?.stage || "seed", current?.species)}</Text>
           <Text style={styles.heroName}>{current?.name}</Text>
           <Text style={styles.xpText}>{current?.xp} XP</Text>
 
@@ -144,7 +162,7 @@ export default function Garden() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.md, paddingRight: spacing.lg }}>
           {plants.map((p) => (
             <View key={p.plant_id} style={[styles.plantChip, p.is_current && styles.plantChipActive]}>
-              <Text style={styles.chipEmoji}>{STAGE_EMOJI[p.stage]}</Text>
+              <Text style={styles.chipEmoji}>{emojiFor(p.stage, p.species)}</Text>
               <Text style={styles.chipName} numberOfLines={1}>{p.name}</Text>
               <Text style={styles.chipStage}>{STAGE_LABEL[p.stage]}</Text>
               <Text style={styles.chipXp}>{p.xp} XP</Text>
@@ -176,6 +194,21 @@ export default function Garden() {
               maxLength={30}
               testID="new-plant-name-input"
             />
+
+            <Text style={styles.speciesLabel}>Pick a species</Text>
+            <View style={styles.speciesRow}>
+              {SPECIES_LIST.map((s) => (
+                <Pressable
+                  key={s.key}
+                  onPress={() => { Haptics.selectionAsync(); setResetSpecies(s.key); }}
+                  style={[styles.speciesPill, resetSpecies === s.key && styles.speciesPillActive]}
+                  testID={`species-${s.key}`}
+                >
+                  <Text style={styles.speciesEmoji}>{s.bloom}</Text>
+                  <Text style={[styles.speciesText, resetSpecies === s.key && styles.speciesTextActive]}>{s.label}</Text>
+                </Pressable>
+              ))}
+            </View>
             <View style={styles.sheetRow}>
               <Pressable
                 onPress={() => setResetOpen(false)}
@@ -202,6 +235,14 @@ export default function Garden() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <BloomCelebration
+        visible={bloomVisible}
+        plantName={bloomPlant?.name || "your plant"}
+        species={bloomPlant?.species}
+        xp={bloomPlant?.xp || 350}
+        onClose={() => setBloomVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -272,4 +313,16 @@ const styles = StyleSheet.create({
     flex: 1, paddingVertical: 16, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
   },
   sheetBtnText: { fontSize: 15, fontWeight: "700" },
+  speciesLabel: { fontSize: 13, fontWeight: "700", color: colors.onSurface, marginTop: spacing.md, marginBottom: spacing.sm },
+  speciesRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  speciesPill: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: spacing.md, paddingVertical: 10,
+    borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary,
+    borderWidth: 2, borderColor: "transparent",
+  },
+  speciesPillActive: { backgroundColor: colors.brandTertiary, borderColor: colors.brandPrimary },
+  speciesEmoji: { fontSize: 20 },
+  speciesText: { fontSize: 13, fontWeight: "700", color: colors.onSurface },
+  speciesTextActive: { color: colors.onBrandTertiary },
 });
