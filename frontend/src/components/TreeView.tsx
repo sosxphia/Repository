@@ -1,5 +1,7 @@
-import { View, Text } from "react-native";
-import Svg, { Rect, Circle, Line, Ellipse, G, Path } from "react-native-svg";
+import { useState } from "react";
+import { View, Text, StyleSheet, Pressable } from "react-native";
+import Svg, { Circle, Line, Ellipse, G, Path } from "react-native-svg";
+import * as Haptics from "expo-haptics";
 import { Stage } from "@/src/lib/plant";
 
 export type Season = "spring" | "summer" | "autumn" | "winter";
@@ -20,48 +22,42 @@ export const SEASON_LABELS: Record<Season, { label: string; emoji: string; chipB
 };
 
 type Palette = {
-  trunk: string; trunkShadow: string;
-  leafMain: string; leafDark: string; leafLight: string;
+  trunk: string; trunkDark: string; trunkLight: string;
+  leafBase: string; leafMain: string; leafLight: string;
   fruit: string;
   ground: string; ground2: string;
   sky: string;
   canopyScale: number;
-  showSnow?: boolean;
 };
 
 const PALETTES: Record<Season, Palette> = {
   spring: {
-    trunk: "#78350F", trunkShadow: "#5C2A08",
-    leafMain: "#86EFAC", leafDark: "#22C55E", leafLight: "#DCFCE7",
+    trunk: "#8B4513", trunkDark: "#5C2E0A", trunkLight: "#B87333",
+    leafBase: "#16A34A", leafMain: "#22C55E", leafLight: "#86EFAC",
     fruit: "#F472B6",
     ground: "#DCFCE7", ground2: "#BBF7D0",
-    sky: "#FEF3C7",
-    canopyScale: 1.0,
+    sky: "#FEF7DA", canopyScale: 1.0,
   },
   summer: {
-    trunk: "#78350F", trunkShadow: "#5C2A08",
-    leafMain: "#059669", leafDark: "#047857", leafLight: "#34D399",
+    trunk: "#8B4513", trunkDark: "#5C2E0A", trunkLight: "#B87333",
+    leafBase: "#166534", leafMain: "#22C55E", leafLight: "#4ADE80",
     fruit: "#F59E0B",
     ground: "#DCFCE7", ground2: "#BBF7D0",
-    sky: "#FEF3C7",
-    canopyScale: 1.0,
+    sky: "#FEF7DA", canopyScale: 1.0,
   },
   autumn: {
-    trunk: "#78350F", trunkShadow: "#5C2A08",
-    leafMain: "#EA580C", leafDark: "#9A3412", leafLight: "#FB923C",
+    trunk: "#8B4513", trunkDark: "#5C2E0A", trunkLight: "#B87333",
+    leafBase: "#B45309", leafMain: "#EA580C", leafLight: "#FB923C",
     fruit: "#DC2626",
     ground: "#FEF3C7", ground2: "#FDE68A",
-    sky: "#FED7AA",
-    canopyScale: 0.95,
+    sky: "#FED7AA", canopyScale: 0.95,
   },
   winter: {
-    trunk: "#57534E", trunkShadow: "#44403C",
-    leafMain: "#94A3B8", leafDark: "#64748B", leafLight: "#E2E8F0",
+    trunk: "#57534E", trunkDark: "#44403C", trunkLight: "#78716C",
+    leafBase: "#64748B", leafMain: "#94A3B8", leafLight: "#E2E8F0",
     fruit: "#F8FAFC",
     ground: "#F1F5F9", ground2: "#E2E8F0",
-    sky: "#E0F2FE",
-    canopyScale: 0.6,
-    showSnow: true,
+    sky: "#E0F2FE", canopyScale: 0.5,
   },
 };
 
@@ -70,229 +66,349 @@ type Props = {
   xp: number;
   goals: { goal_id: string; title: string }[];
   width?: number;
-  height?: number;
   season?: Season;
-  labelsOnBranches?: boolean;
 };
 
-// Giant scrollable canvas
 const CANVAS_W = 360;
-const CANVAS_H = 1200;      // tall canvas for scrolling journey
-const GROUND_Y = 1160;
-const TRUNK_W_BASE = 44;    // fat trunk
+// Fixed regions
+const CANOPY_ZONE = 320;     // top canopy area
+const GROUND_MARGIN = 60;    // ground padding at the bottom
+const BRANCH_ROW_SPACING = 320; // one branch every ~320 viewBox units = 2 per screen at scale ~0.94
+const FIRST_BRANCH_OFFSET = 260; // from canopy_zone
+const BASE_TRUNK_H = 900;    // baseline trunk height (no branches)
 
-// Trunk top Y by stage — how tall the tree currently is
-const TRUNK_TOP_BY_STAGE: Record<Stage, number> = {
-  seed: GROUND_Y - 20,
-  sprout: GROUND_Y - 150,
-  sapling: GROUND_Y - 500,
-  bloom: GROUND_Y - 900,
+// Base trunk width by stage
+const TRUNK_BASE_W: Record<Stage, number> = {
+  seed: 12, sprout: 34, sapling: 70, bloom: 100,
 };
 
-// Canopy radius by stage
 const CANOPY_R_BY_STAGE: Record<Stage, number> = {
-  seed: 0,
-  sprout: 40,
-  sapling: 90,
-  bloom: 160,
+  seed: 0, sprout: 55, sapling: 130, bloom: 200,
 };
 
-export function TreeView({
-  stage,
-  xp,
-  goals,
-  width = CANVAS_W,
-  height,
-  season,
-  labelsOnBranches = true,
-}: Props) {
+const MAX_BRANCHES_BY_STAGE: Record<Stage, number> = {
+  seed: 0, sprout: 3, sapling: 12, bloom: 30,
+};
+
+function LeafyCloud({
+  cx, cy, r, base, main, light, fruit, withFruit,
+}: {
+  cx: number; cy: number; r: number;
+  base: string; main: string; light: string; fruit: string; withFruit: boolean;
+}) {
+  const bumps: [number, number, number][] = [
+    [0, 0, r],
+    [-r * 0.7, -r * 0.25, r * 0.75],
+    [r * 0.7, -r * 0.2, r * 0.72],
+    [-r * 0.5, -r * 0.75, r * 0.6],
+    [r * 0.5, -r * 0.8, r * 0.6],
+    [0, -r * 1.05, r * 0.55],
+    [-r * 0.9, -r * 0.55, r * 0.5],
+    [r * 0.9, -r * 0.5, r * 0.5],
+    [-r * 0.2, r * 0.35, r * 0.55],
+    [r * 0.25, r * 0.4, r * 0.5],
+  ];
+  return (
+    <G>
+      {bumps.map(([dx, dy, br], i) => (
+        <Circle key={`b1-${i}`} cx={cx + dx} cy={cy + dy + 4} r={br} fill={base} />
+      ))}
+      {bumps.map(([dx, dy, br], i) => (
+        <Circle key={`b2-${i}`} cx={cx + dx} cy={cy + dy} r={br * 0.9} fill={main} />
+      ))}
+      {bumps.slice(0, 6).map(([dx, dy, br], i) => (
+        <Circle key={`b3-${i}`} cx={cx + dx + br * 0.15} cy={cy + dy - br * 0.3} r={br * 0.42} fill={light} />
+      ))}
+      {withFruit && (
+        <G>
+          <Circle cx={cx - r * 0.35} cy={cy - r * 0.3} r={6} fill={fruit} />
+          <Circle cx={cx + r * 0.5} cy={cy - r * 0.5} r={6} fill={fruit} />
+          <Circle cx={cx + r * 0.1} cy={cy - r * 0.85} r={6} fill={fruit} />
+          <Circle cx={cx - r * 0.55} cy={cy + r * 0.2} r={5} fill={fruit} />
+          <Circle cx={cx + r * 0.4} cy={cy + r * 0.25} r={5} fill={fruit} />
+        </G>
+      )}
+    </G>
+  );
+}
+
+// Horizontal tapered branch — thick at trunk, thin at tip. Small leaf clusters along it, NO terminal ball.
+function HorizontalBranch({
+  startX, y, length, side, palette,
+}: {
+  startX: number; y: number; length: number; side: 1 | -1; palette: Palette;
+}) {
+  const baseT = 22; // base thickness
+  const tipT = 4;   // tip thickness
+  const endX = startX + side * length;
+  // Trapezoid path — organic branch shape
+  const path = `
+    M ${startX} ${y - baseT / 2}
+    L ${endX} ${y - tipT / 2}
+    L ${endX} ${y + tipT / 2}
+    L ${startX} ${y + baseT / 2}
+    Z
+  `;
+  // Small leaf clusters along the branch (no ball at end)
+  const clusters = [0.35, 0.6, 0.82].map((t, i) => {
+    const cx = startX + side * length * t;
+    const cy = y - 4 - i * 1;
+    const r = 12 - i * 2;
+    return { cx, cy, r };
+  });
+  return (
+    <G>
+      {/* Branch shadow */}
+      <Path d={`M ${startX} ${y - baseT / 2 - 2} L ${endX} ${y - tipT / 2 - 1} L ${endX} ${y + tipT / 2 + 1} L ${startX} ${y + baseT / 2 + 2} Z`} fill={palette.trunkDark} />
+      {/* Main branch */}
+      <Path d={path} fill={palette.trunk} />
+      {/* Highlight along top */}
+      <Path
+        d={`M ${startX + side * baseT * 0.3} ${y - baseT / 2 + 3} L ${endX - side * 4} ${y - tipT / 2 + 1} L ${endX - side * 4} ${y - tipT / 2 + 3} L ${startX + side * baseT * 0.3} ${y - baseT / 2 + 5} Z`}
+        fill={palette.trunkLight}
+        opacity={0.6}
+      />
+      {/* Leaf clusters ALONG the branch (small, tucked around it) */}
+      {clusters.map((c, i) => (
+        <G key={`cl-${i}`}>
+          {/* Dark under-shadow */}
+          <Circle cx={c.cx} cy={c.cy + 3} r={c.r + 2} fill={palette.leafBase} />
+          {/* Main leaf */}
+          <Circle cx={c.cx} cy={c.cy} r={c.r} fill={palette.leafMain} />
+          <Circle cx={c.cx - side * 3} cy={c.cy - 2} r={c.r * 0.7} fill={palette.leafMain} />
+          <Circle cx={c.cx + side * 4} cy={c.cy - 3} r={c.r * 0.55} fill={palette.leafLight} />
+        </G>
+      ))}
+    </G>
+  );
+}
+
+export function TreeView({ stage, xp, goals, width = CANVAS_W, season }: Props) {
   const activeSeason = season ?? seasonNow();
   const p = PALETTES[activeSeason];
-
-  const trunkTopY = TRUNK_TOP_BY_STAGE[stage];
-  const canopyR = CANOPY_R_BY_STAGE[stage] * p.canopyScale;
   const cx = CANVAS_W / 2;
+  const baseW = TRUNK_BASE_W[stage];
+  const canopyR = CANOPY_R_BY_STAGE[stage] * p.canopyScale;
 
-  const trunkH = GROUND_Y - trunkTopY;
-  const trunkW = TRUNK_W_BASE * (stage === "seed" ? 0.3 : stage === "sprout" ? 0.5 : stage === "sapling" ? 0.75 : 1);
-
-  // Determine how many branches to display — no artificial cap now, tree is giant
-  const maxBranches = stage === "seed" ? 0 : stage === "sprout" ? 3 : stage === "sapling" ? 12 : 30;
+  const maxBranches = MAX_BRANCHES_BY_STAGE[stage];
   const visibleGoals = goals.slice(0, maxBranches);
+  const numBranches = visibleGoals.length;
 
-  // Branches distributed along the visible trunk (bottom 90% so canopy doesn't hide them)
-  const branchTopY = trunkTopY + trunkH * 0.05;
-  const branchBotY = GROUND_Y - trunkH * 0.08;
-  const branches = visibleGoals.map((g, i) => {
-    const side = i % 2 === 0 ? -1 : 1;
-    const spread = maxBranches > 1 ? i / (maxBranches - 1) : 0.5;
-    const y = branchBotY - spread * (branchBotY - branchTopY);
-    const branchLen = 60 + Math.min(canopyR * 0.35, 40);
-    // Alternate angle a bit so branches don't overlap perfectly
-    const angleDeg = 25 + (i % 4) * 6;
-    const rad = (angleDeg * Math.PI) / 180;
-    const endX = cx + side * Math.cos(rad) * branchLen;
-    const endY = y - Math.sin(rad) * branchLen;
-    // Leaf cluster radius
-    const leafR = 12 + (spread * 4);
-    return {
-      key: g.goal_id,
-      title: g.title,
-      side,
-      startX: cx + side * (trunkW / 2 - 2),
-      startY: y,
-      endX,
-      endY,
-      leafR,
-    };
-  });
+  // Grow the canvas taller as branches are added
+  const branchZoneStart = CANOPY_ZONE + FIRST_BRANCH_OFFSET; // where first branch lives
+  const branchZoneEnd = branchZoneStart + Math.max(0, numBranches - 1) * BRANCH_ROW_SPACING;
+  const trunkBottomY = Math.max(CANOPY_ZONE + BASE_TRUNK_H, branchZoneEnd + 240);
+  const CANVAS_H = trunkBottomY + GROUND_MARGIN;
+  const GROUND_Y = trunkBottomY;
+  const trunkTopY = CANOPY_ZONE - 20;
+  const trunkH = GROUND_Y - trunkTopY;
 
-  const finalHeight = height ?? Math.round((CANVAS_H / CANVAS_W) * width);
+  const finalHeight = Math.round((CANVAS_H / CANVAS_W) * width);
 
-  // Seed stage — small mound near the bottom, still on the giant canvas
+  const [selected, setSelected] = useState<{ id: string; title: string; x: number; y: number } | null>(null);
+
+  const scale = width / CANVAS_W;
+
+  // SEED — small mound with sprout leaves
   if (stage === "seed") {
     return (
       <View style={{ width, height: finalHeight, alignSelf: "center" }} testID="tree-svg">
         <Svg width={width} height={finalHeight} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
-          <Rect x={0} y={0} width={CANVAS_W} height={CANVAS_H} fill={p.sky} />
-          <Ellipse cx={cx} cy={GROUND_Y + 24} rx={180} ry={40} fill={p.ground} />
-          <Ellipse cx={cx} cy={GROUND_Y + 14} rx={140} ry={26} fill={p.ground2} />
-          <Ellipse cx={cx} cy={GROUND_Y + 4} rx={60} ry={16} fill="#A16207" />
-          <Ellipse cx={cx} cy={GROUND_Y - 4} rx={44} ry={10} fill="#78350F" />
-          <Rect x={cx - 3} y={GROUND_Y - 28} width={6} height={28} rx={3} fill={p.leafDark} />
-          <Ellipse cx={cx - 14} cy={GROUND_Y - 26} rx={14} ry={7} fill={p.leafMain} transform={`rotate(-25 ${cx - 14} ${GROUND_Y - 26})`} />
-          <Ellipse cx={cx + 14} cy={GROUND_Y - 32} rx={14} ry={7} fill={p.leafLight} transform={`rotate(25 ${cx + 14} ${GROUND_Y - 32})`} />
+          <Path d={`M0 0 H${CANVAS_W} V${CANVAS_H} H0 Z`} fill={p.sky} />
+          <Ellipse cx={cx} cy={GROUND_Y + 30} rx={210} ry={44} fill={p.ground} />
+          <Ellipse cx={cx} cy={GROUND_Y + 18} rx={170} ry={28} fill={p.ground2} />
+          <Ellipse cx={cx} cy={GROUND_Y + 6} rx={60} ry={16} fill="#A16207" />
+          <Ellipse cx={cx} cy={GROUND_Y - 2} rx={44} ry={10} fill="#78350F" />
+          <Path d={`M ${cx - 3} ${GROUND_Y - 3} L ${cx - 3} ${GROUND_Y - 30} L ${cx + 3} ${GROUND_Y - 30} L ${cx + 3} ${GROUND_Y - 3} Z`} fill={p.trunkDark} />
+          <Ellipse cx={cx - 14} cy={GROUND_Y - 28} rx={14} ry={7} fill={p.leafMain} transform={`rotate(-25 ${cx - 14} ${GROUND_Y - 28})`} />
+          <Ellipse cx={cx + 14} cy={GROUND_Y - 34} rx={14} ry={7} fill={p.leafLight} transform={`rotate(25 ${cx + 14} ${GROUND_Y - 34})`} />
         </Svg>
       </View>
     );
   }
 
-  return (
-    <View style={{ width, height: finalHeight, alignSelf: "center" }} testID="tree-svg">
-      <Svg width={width} height={finalHeight} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
-        {/* Sky background */}
-        <Rect x={0} y={0} width={CANVAS_W} height={CANVAS_H} fill={p.sky} />
+  // Branch positions — alternating sides, thick horizontal
+  const branches = visibleGoals.map((g, i) => {
+    const side: 1 | -1 = i % 2 === 0 ? -1 : 1;
+    const y = branchZoneStart + i * BRANCH_ROW_SPACING;
+    const length = 130 + (i % 3) * 12; // slight length variation
+    // Trunk gets wider as we go down (taper), so branch starts wider near ground
+    const yFromGround = GROUND_Y - y;
+    const trunkHalf = baseW / 2 * (0.65 + 0.35 * (yFromGround / trunkH));
+    const startX = cx + side * (trunkHalf - 2);
+    const endX = startX + side * length;
+    return { key: g.goal_id, title: g.title, side, startX, y, endX, length };
+  });
 
-        {/* Distant hills (parallax feel) */}
-        <Ellipse cx={80} cy={GROUND_Y + 40} rx={150} ry={40} fill={p.ground2} opacity={0.5} />
-        <Ellipse cx={CANVAS_W - 60} cy={GROUND_Y + 30} rx={130} ry={36} fill={p.ground2} opacity={0.5} />
+  return (
+    <View style={{ width, height: finalHeight, alignSelf: "center", position: "relative" }} testID="tree-svg">
+      <Svg width={width} height={finalHeight} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
+        {/* Sky */}
+        <Path d={`M0 0 H${CANVAS_W} V${CANVAS_H} H0 Z`} fill={p.sky} />
+
+        {/* Distant hills */}
+        <Ellipse cx={70} cy={GROUND_Y + 50} rx={160} ry={45} fill={p.ground2} opacity={0.55} />
+        <Ellipse cx={CANVAS_W - 60} cy={GROUND_Y + 40} rx={140} ry={38} fill={p.ground2} opacity={0.55} />
 
         {/* Ground */}
-        <Ellipse cx={cx} cy={GROUND_Y + 30} rx={210} ry={48} fill={p.ground} />
-        <Ellipse cx={cx} cy={GROUND_Y + 20} rx={180} ry={32} fill={p.ground2} />
+        <Ellipse cx={cx} cy={GROUND_Y + 34} rx={220} ry={52} fill={p.ground} />
+        <Ellipse cx={cx} cy={GROUND_Y + 22} rx={190} ry={36} fill={p.ground2} />
 
-        {/* Fat organic trunk (curvy path so it doesn't look like a rectangle) */}
-        <Path
-          d={`
-            M ${cx - trunkW / 2} ${GROUND_Y}
-            Q ${cx - trunkW / 2 - 6} ${trunkTopY + trunkH * 0.5}, ${cx - trunkW / 2 + 2} ${trunkTopY + trunkH * 0.15}
-            Q ${cx - trunkW / 2 + 6} ${trunkTopY}, ${cx} ${trunkTopY - 6}
-            Q ${cx + trunkW / 2 - 6} ${trunkTopY}, ${cx + trunkW / 2 - 2} ${trunkTopY + trunkH * 0.15}
-            Q ${cx + trunkW / 2 + 6} ${trunkTopY + trunkH * 0.5}, ${cx + trunkW / 2} ${GROUND_Y}
-            Z
-          `}
-          fill={p.trunkShadow}
-        />
-        <Path
-          d={`
-            M ${cx - trunkW / 2 + 3} ${GROUND_Y}
-            Q ${cx - trunkW / 2 - 2} ${trunkTopY + trunkH * 0.5}, ${cx - trunkW / 2 + 6} ${trunkTopY + trunkH * 0.15}
-            Q ${cx - trunkW / 2 + 8} ${trunkTopY + 4}, ${cx} ${trunkTopY - 2}
-            Q ${cx + trunkW / 2 - 8} ${trunkTopY + 4}, ${cx + trunkW / 2 - 6} ${trunkTopY + trunkH * 0.15}
-            Q ${cx + trunkW / 2 + 2} ${trunkTopY + trunkH * 0.5}, ${cx + trunkW / 2 - 3} ${GROUND_Y}
-            Z
-          `}
-          fill={p.trunk}
-        />
-
-        {/* Trunk texture: knots and grain lines */}
+        {/* Root flare */}
         {stage !== "sprout" && (
-          <G opacity={0.35}>
-            <Ellipse cx={cx - trunkW * 0.15} cy={GROUND_Y - trunkH * 0.35} rx={5} ry={7} fill={p.trunkShadow} />
-            <Ellipse cx={cx + trunkW * 0.2} cy={GROUND_Y - trunkH * 0.6} rx={4} ry={6} fill={p.trunkShadow} />
-            <Line x1={cx - trunkW * 0.3} y1={GROUND_Y - trunkH * 0.15} x2={cx - trunkW * 0.3} y2={GROUND_Y - trunkH * 0.55} stroke={p.trunkShadow} strokeWidth={1} />
-            <Line x1={cx + trunkW * 0.25} y1={GROUND_Y - trunkH * 0.2} x2={cx + trunkW * 0.25} y2={GROUND_Y - trunkH * 0.7} stroke={p.trunkShadow} strokeWidth={1} />
-          </G>
-        )}
-
-        {/* Canopy — big layered cloud of leaves */}
-        {canopyR > 0 && (
           <G>
-            {/* Base darker layer */}
-            <Circle cx={cx - canopyR * 0.7} cy={trunkTopY - canopyR * 0.15} r={canopyR * 0.75} fill={p.leafDark} />
-            <Circle cx={cx + canopyR * 0.7} cy={trunkTopY - canopyR * 0.15} r={canopyR * 0.72} fill={p.leafDark} />
-            <Circle cx={cx - canopyR * 0.35} cy={trunkTopY - canopyR * 0.8} r={canopyR * 0.65} fill={p.leafDark} />
-            <Circle cx={cx + canopyR * 0.35} cy={trunkTopY - canopyR * 0.85} r={canopyR * 0.6} fill={p.leafDark} />
-            {/* Main layer */}
-            <Circle cx={cx} cy={trunkTopY - canopyR * 0.55} r={canopyR * 0.95} fill={p.leafMain} />
-            <Circle cx={cx - canopyR * 0.5} cy={trunkTopY - canopyR * 0.35} r={canopyR * 0.6} fill={p.leafMain} />
-            <Circle cx={cx + canopyR * 0.5} cy={trunkTopY - canopyR * 0.35} r={canopyR * 0.6} fill={p.leafMain} />
-            {/* Highlights */}
-            <Circle cx={cx - canopyR * 0.3} cy={trunkTopY - canopyR * 0.75} r={canopyR * 0.4} fill={p.leafLight} />
-            <Circle cx={cx + canopyR * 0.35} cy={trunkTopY - canopyR * 0.7} r={canopyR * 0.35} fill={p.leafLight} />
-            <Circle cx={cx} cy={trunkTopY - canopyR * 1.05} r={canopyR * 0.35} fill={p.leafLight} />
-            {stage === "bloom" && (
-              <G>
-                <Circle cx={cx - canopyR * 0.45} cy={trunkTopY - canopyR * 0.4} r={7} fill={p.fruit} />
-                <Circle cx={cx + canopyR * 0.5} cy={trunkTopY - canopyR * 0.5} r={7} fill={p.fruit} />
-                <Circle cx={cx} cy={trunkTopY - canopyR * 0.9} r={7} fill={p.fruit} />
-                <Circle cx={cx + canopyR * 0.15} cy={trunkTopY - canopyR * 0.15} r={7} fill={p.fruit} />
-                <Circle cx={cx - canopyR * 0.2} cy={trunkTopY - canopyR * 0.6} r={6} fill={p.fruit} />
-                <Circle cx={cx + canopyR * 0.75} cy={trunkTopY - canopyR * 0.1} r={6} fill={p.fruit} />
-              </G>
-            )}
+            <Path
+              d={`M ${cx - baseW * 0.95} ${GROUND_Y + 12}
+                  Q ${cx - baseW * 0.4} ${GROUND_Y - 8}, ${cx - baseW * 0.55} ${GROUND_Y - 34}
+                  L ${cx - baseW * 0.3} ${GROUND_Y - 22}
+                  Q ${cx - baseW * 0.15} ${GROUND_Y - 5}, ${cx - baseW * 0.2} ${GROUND_Y + 14} Z`}
+              fill={p.trunkDark}
+            />
+            <Path
+              d={`M ${cx + baseW * 0.95} ${GROUND_Y + 12}
+                  Q ${cx + baseW * 0.4} ${GROUND_Y - 8}, ${cx + baseW * 0.55} ${GROUND_Y - 34}
+                  L ${cx + baseW * 0.3} ${GROUND_Y - 22}
+                  Q ${cx + baseW * 0.15} ${GROUND_Y - 5}, ${cx + baseW * 0.2} ${GROUND_Y + 14} Z`}
+              fill={p.trunkDark}
+            />
           </G>
         )}
 
-        {/* Branches per completed goal */}
+        {/* MAIN TRUNK — tapered from wide base to narrower top */}
+        {(() => {
+          const topW = baseW * 0.55;
+          const midY = (trunkTopY + GROUND_Y) / 2;
+          const midW = baseW * 0.75;
+          const trunkPath = `
+            M ${cx - baseW / 2} ${GROUND_Y}
+            Q ${cx - midW / 2 - 4} ${midY + trunkH * 0.15}, ${cx - midW / 2} ${midY - trunkH * 0.05}
+            Q ${cx - topW / 2 - 4} ${trunkTopY + trunkH * 0.2}, ${cx - topW / 2 + 2} ${trunkTopY + 4}
+            L ${cx + topW / 2 - 2} ${trunkTopY + 4}
+            Q ${cx + topW / 2 + 4} ${trunkTopY + trunkH * 0.2}, ${cx + midW / 2} ${midY - trunkH * 0.05}
+            Q ${cx + midW / 2 + 4} ${midY + trunkH * 0.15}, ${cx + baseW / 2} ${GROUND_Y} Z
+          `;
+          return (
+            <G>
+              <Path d={trunkPath} fill={p.trunk} />
+              {/* Dark side (left) */}
+              <Path
+                d={`M ${cx - baseW / 2} ${GROUND_Y}
+                    Q ${cx - midW / 2 - 4} ${midY + trunkH * 0.15}, ${cx - midW / 2} ${midY - trunkH * 0.05}
+                    Q ${cx - topW / 2 - 4} ${trunkTopY + trunkH * 0.2}, ${cx - topW / 2 + 2} ${trunkTopY + 4}
+                    L ${cx - topW / 2 + 8} ${trunkTopY + 4}
+                    Q ${cx - midW / 2 + 6} ${midY - trunkH * 0.05}, ${cx - midW / 2 + 4} ${midY + trunkH * 0.15}
+                    Q ${cx - baseW / 2 + 8} ${GROUND_Y - 5}, ${cx - baseW / 2} ${GROUND_Y} Z`}
+                fill={p.trunkDark}
+                opacity={0.5}
+              />
+              {/* Light highlight (right) */}
+              <Path
+                d={`M ${cx + baseW * 0.1} ${GROUND_Y - 10}
+                    Q ${cx + midW * 0.28} ${midY}, ${cx + topW * 0.2} ${trunkTopY + trunkH * 0.15}
+                    L ${cx + topW * 0.05} ${trunkTopY + trunkH * 0.15}
+                    Q ${cx + midW * 0.12} ${midY}, ${cx} ${GROUND_Y - 10} Z`}
+                fill={p.trunkLight}
+                opacity={0.5}
+              />
+              {/* Bark knots */}
+              <G opacity={0.35}>
+                <Ellipse cx={cx - baseW * 0.15} cy={midY - trunkH * 0.1} rx={5} ry={7} fill={p.trunkDark} />
+                <Ellipse cx={cx + baseW * 0.2} cy={midY + trunkH * 0.15} rx={4} ry={6} fill={p.trunkDark} />
+                <Ellipse cx={cx - baseW * 0.1} cy={midY + trunkH * 0.35} rx={4} ry={5} fill={p.trunkDark} />
+              </G>
+            </G>
+          );
+        })()}
+
+        {/* CANOPY — bumpy cloud */}
+        {canopyR > 0 && (
+          <LeafyCloud
+            cx={cx}
+            cy={trunkTopY - canopyR * 0.35}
+            r={canopyR}
+            base={p.leafBase} main={p.leafMain} light={p.leafLight}
+            fruit={p.fruit} withFruit={stage === "bloom"}
+          />
+        )}
+
+        {/* HORIZONTAL BRANCHES — tapered, no ball at end */}
         {branches.map((b) => (
-          <G key={b.key}>
-            {/* Branch line — organic, slightly thicker near the trunk */}
-            <Line
-              x1={b.startX} y1={b.startY}
-              x2={b.endX} y2={b.endY}
-              stroke={p.trunk} strokeWidth={5} strokeLinecap="round"
-            />
-            <Line
-              x1={b.startX} y1={b.startY}
-              x2={b.endX} y2={b.endY}
-              stroke={p.trunkShadow} strokeWidth={2} strokeLinecap="round" opacity={0.4}
-            />
-            {/* Leaf cluster on the branch tip */}
-            <Circle cx={b.endX} cy={b.endY} r={b.leafR} fill={p.leafDark} />
-            <Circle cx={b.endX + b.side * 4} cy={b.endY - 3} r={b.leafR * 0.75} fill={p.leafMain} />
-            <Circle cx={b.endX - b.side * 3} cy={b.endY - 5} r={b.leafR * 0.55} fill={p.leafLight} />
-          </G>
+          <HorizontalBranch
+            key={b.key}
+            startX={b.startX}
+            y={b.y}
+            length={b.length}
+            side={b.side}
+            palette={p}
+          />
         ))}
 
-        {/* Autumn fallen leaves scattered along the ground */}
-        {activeSeason === "autumn" && (
-          <G opacity={0.9}>
-            {[0.15, 0.32, 0.5, 0.68, 0.82].map((t, idx) => {
-              const x = 40 + t * (CANVAS_W - 80);
-              const y = GROUND_Y + 8 + (idx % 2) * 6;
-              const rot = -30 + idx * 20;
-              const col = [p.leafMain, p.leafLight, p.fruit, p.leafDark][idx % 4];
-              return (
-                <Ellipse key={`leaf-${idx}`} cx={x} cy={y} rx={8} ry={3} fill={col} transform={`rotate(${rot} ${x} ${y})`} />
-              );
-            })}
-          </G>
-        )}
-
-        {/* Winter snowflakes drifting in the sky */}
-        {p.showSnow && (
-          <G>
-            <Ellipse cx={cx} cy={GROUND_Y + 10} rx={190} ry={12} fill="#FFF" opacity={0.85} />
-            {[[60, 220], [140, 90], [220, 300], [300, 160], [60, 480], [280, 520], [180, 700]].map(([x, y], i) => (
-              <Circle key={`snow-${i}`} cx={x} cy={y} r={3} fill="#FFF" />
-            ))}
-            {[[100, 380], [240, 240], [80, 620], [300, 780], [180, 900]].map(([x, y], i) => (
-              <Circle key={`snow2-${i}`} cx={x} cy={y} r={2} fill="#FFF" />
-            ))}
-          </G>
-        )}
+        {/* Selection ring around active branch */}
+        {selected && (() => {
+          const b = branches.find((x) => x.key === selected.id);
+          if (!b) return null;
+          const midX = b.startX + b.side * b.length * 0.55;
+          return <Circle cx={midX} cy={b.y - 4} r={28} fill="none" stroke={p.fruit} strokeWidth={3} />;
+        })()}
       </Svg>
+
+      {/* Invisible tap targets over each branch */}
+      {branches.map((b) => {
+        const midX = b.startX + b.side * b.length * 0.5;
+        return (
+          <Pressable
+            key={`hit-${b.key}`}
+            onPress={() => {
+              Haptics.selectionAsync();
+              setSelected({ id: b.key, title: b.title, x: midX, y: b.y });
+            }}
+            testID={`branch-hit-${b.key}`}
+            style={{
+              position: "absolute",
+              left: Math.min(b.startX, b.endX) * scale - 8,
+              top: (b.y - 20) * scale,
+              width: (Math.abs(b.endX - b.startX) + 16) * scale,
+              height: 44 * scale,
+            }}
+          />
+        );
+      })}
+
+      {/* Branch tooltip overlay */}
+      {selected && (
+        <Pressable
+          onPress={() => setSelected(null)}
+          testID="branch-tooltip"
+          style={[
+            styles.tooltip,
+            {
+              left: Math.max(4, Math.min(width - 220, selected.x * scale - 100)),
+              top: Math.max(4, selected.y * scale - 60),
+            },
+          ]}
+        >
+          <Text style={styles.tooltipText} numberOfLines={2}>🍃 {selected.title}</Text>
+          <Text style={styles.tooltipHint}>tap to close</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  tooltip: {
+    position: "absolute",
+    maxWidth: 200,
+    backgroundColor: "#1F2937",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  tooltipText: { color: "#FFF", fontSize: 13, fontWeight: "700" },
+  tooltipHint: { color: "#9CA3AF", fontSize: 10, marginTop: 2 },
+});

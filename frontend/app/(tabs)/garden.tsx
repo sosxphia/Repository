@@ -14,6 +14,7 @@ import { STAGE_LABEL, Stage, emojiFor } from "@/src/lib/plant";
 import { BloomCelebration } from "@/src/components/BloomCelebration";
 import { TreeView } from "@/src/components/TreeView";
 import { seasonNow, SEASON_LABELS, Season } from "@/src/components/TreeView";
+import { WeatherLayer, Weather } from "@/src/components/WeatherLayer";
 import { storage } from "@/src/utils/storage";
 
 type Goal = { goal_id: string; title: string; completed: boolean; completed_at?: string | null };
@@ -218,6 +219,21 @@ export default function Garden() {
             season={activeSeason}
             width={340}
           />
+          {(() => {
+            const kind: Weather =
+              activeSeason === "autumn" ? "leaves"
+              : activeSeason === "winter" ? "snow"
+              : activeSeason === "spring" ? "blossoms"
+              : "none";
+            // Approx canvas height based on branch count (matches TreeView calc)
+            const stage = current?.stage || "seed";
+            const maxB = stage === "sprout" ? 3 : stage === "sapling" ? 12 : stage === "bloom" ? 30 : 0;
+            const n = Math.min(completedGoals.length, maxB);
+            const trunkBottom = Math.max(320 + 260 + 900, 320 + 260 + Math.max(0, n - 1) * 320 + 240);
+            const CANVAS_H = trunkBottom + 60;
+            const canvasHeight = Math.round((CANVAS_H / 360) * 340);
+            return <WeatherLayer kind={kind} width={340} height={canvasHeight} />;
+          })()}
         </View>
 
         {/* Memory note editor */}
