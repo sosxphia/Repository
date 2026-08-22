@@ -115,3 +115,7 @@
 
 ## Streak Calendar (June 2026)
 - GET /api/activity-calendar added + StreakCalendar component on profile. Main agent verified via curl (current + past month aggregation) and screenshots (active day highlight, prev-month nav, next disabled). needs_retesting: false
+
+## Tree Revive via PayPal (June 2026)
+- PAYPAL_PRODUCTS catalog, POST /api/paypal/orders {product}, revive grant on capture (exactly once, restores plant, refreshes last_activity_date). Frontend shared paypal.ts helper + revive button on garden memorial card.
+- Verified: curl (revive order, 400s), /app/backend/tests/test_revive_manual.py PASS, pytest tests/test_paypal.py 17/17 pass, screenshots of memorial + waiting states. needs_retesting: false

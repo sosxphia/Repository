@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, ActivityIndicator,
   Modal, TextInput, KeyboardAvoidingView, Platform,
@@ -9,6 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { apiFetch } from "@/src/lib/api";
+import { buyWithPayPal } from "@/src/lib/paypal";
 import { colors, spacing, radius } from "@/src/lib/theme";
 import { STAGE_LABEL, Stage, emojiFor } from "@/src/lib/plant";
 import { BloomCelebration } from "@/src/components/BloomCelebration";
@@ -56,6 +57,8 @@ export default function Garden() {
   const [journalNote, setJournalNote] = useState("");
   const [journalSaving, setJournalSaving] = useState(false);
   const [seasonOverride, setSeasonOverride] = useState<Season | "auto">("auto");
+  const [reviving, setReviving] = useState(false);
+  const purchaseRef = useRef<{ cancel: () => void } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -133,6 +136,23 @@ export default function Garden() {
     } finally {
       setResetting(false);
     }
+  };
+
+  const buyRevive = () => {
+    if (reviving) {
+      purchaseRef.current?.cancel();
+      setReviving(false);
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setReviving(true);
+    purchaseRef.current = buyWithPayPal("tree_revive", (result) => {
+      setReviving(false);
+      if (result === "completed") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        load();
+      }
+    });
   };
 
   const openJournal = () => {
@@ -230,14 +250,31 @@ export default function Garden() {
             <Text style={styles.deadEmoji}>💔</Text>
             <Text style={styles.heroName} testID="dead-tree-title">{current.name} withered away…</Text>
             <Text style={styles.deadSub}>
-              Your streak broke and the tree couldn't survive. Plant a new one — every big tree starts as a tiny seed. 🌱
+              Your streak broke and the tree couldn't survive. Revive it with all its progress — or plant a fresh seed.
             </Text>
             <Pressable
+              onPress={buyRevive}
+              style={({ pressed }) => [styles.reviveBtn, pressed && { transform: [{ scale: 0.97 }] }, reviving && { backgroundColor: "#64748B" }]}
+              testID="revive-button"
+            >
+              {reviving ? (
+                <>
+                  <ActivityIndicator color="#FFF" size="small" />
+                  <Text style={styles.replantText}>Waiting for PayPal… tap to cancel</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="logo-paypal" size={18} color="#FFF" />
+                  <Text style={styles.replantText}>💚 Revive {current.name} · $2.99</Text>
+                </>
+              )}
+            </Pressable>
+            <Pressable
               onPress={openReset}
-              style={({ pressed }) => [styles.replantBtn, pressed && { transform: [{ scale: 0.97 }] }]}
+              style={({ pressed }) => [styles.replantGhostBtn, pressed && { transform: [{ scale: 0.97 }] }]}
               testID="replant-button"
             >
-              <Text style={styles.replantText}>Replant a new tree 🌱</Text>
+              <Text style={styles.replantGhostText}>Or replant from seed (free) 🌱</Text>
             </Pressable>
           </LinearGradient>
         ) : (
@@ -481,12 +518,19 @@ const styles = StyleSheet.create({
   riskBtnText: { color: "#FFF", fontSize: 14, fontWeight: "800" },
   deadEmoji: { fontSize: 52 },
   deadSub: { fontSize: 13, color: "#57534E", marginTop: spacing.sm, textAlign: "center", lineHeight: 19 },
-  replantBtn: {
-    marginTop: spacing.lg, backgroundColor: colors.brandSecondary,
+  replantText: { color: "#FFF", fontSize: 15, fontWeight: "800" },
+  reviveBtn: {
+    marginTop: spacing.lg, backgroundColor: "#0070BA",
     paddingVertical: 14, paddingHorizontal: spacing.xl, borderRadius: radius.pill,
     alignSelf: "stretch", alignItems: "center", minHeight: 48, justifyContent: "center",
+    flexDirection: "row", gap: 8,
   },
-  replantText: { color: "#FFF", fontSize: 15, fontWeight: "800" },
+  replantGhostBtn: {
+    marginTop: spacing.md, paddingVertical: 12, paddingHorizontal: spacing.xl, borderRadius: radius.pill,
+    alignSelf: "stretch", alignItems: "center", minHeight: 44, justifyContent: "center",
+    borderWidth: 2, borderColor: colors.brandSecondary, backgroundColor: "transparent",
+  },
+  replantGhostText: { color: colors.brandSecondary, fontSize: 14, fontWeight: "800" },
   treeCanvas: {
     marginTop: spacing.md,
     alignItems: "center",

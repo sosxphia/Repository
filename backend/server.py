@@ -692,9 +692,25 @@ async def activity_calendar(year: int = 0, month: int = 0, authorization: Option
         "streak_days": user.get("streak_days", 0),
     }
 
-# ---------- PayPal (Streak Freeze purchase) ----------
+# ---------- PayPal (in-app purchases) ----------
 PAYPAL_BASE = os.environ.get("PAYPAL_BASE_URL", "https://api-m.sandbox.paypal.com")
-STREAK_FREEZE_PRICE = "1.99"
+PAYPAL_PRODUCTS = {
+    "streak_freeze": {
+        "price": "1.99",
+        "description": "SproutGoals Streak Freeze — protects your tree for one missed day",
+        "success_title": "Streak Freeze purchased!",
+        "success_message": "Your tree is protected. You can close this window and return to SproutGoals.",
+    },
+    "tree_revive": {
+        "price": "2.99",
+        "description": "SproutGoals Tree Revive — bring your tree back to life with all its progress",
+        "success_title": "Your tree is alive again!",
+        "success_message": "All its XP, branches and age are restored. Close this window and return to SproutGoals.",
+    },
+}
+
+class PayPalOrderCreate(BaseModel):
+    product: str = "streak_freeze"
 
 async def _paypal_access_token() -> str:
     cid = os.environ.get("PAYPAL_CLIENT_ID")
@@ -718,16 +734,28 @@ def _public_base(request: Request) -> str:
     return f"{proto}://{host}"
 
 @api_router.post("/paypal/orders")
-async def paypal_create_order(request: Request, authorization: Optional[str] = Header(None)):
+async def paypal_create_order(request: Request, payload: Optional[PayPalOrderCreate] = None, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
+    product = (payload.product if payload else "streak_freeze")
+    if product not in PAYPAL_PRODUCTS:
+        raise HTTPException(status_code=400, detail="Unknown product")
+    info = PAYPAL_PRODUCTS[product]
+    plant_id = None
+    if product == "tree_revive":
+        dead = await db.plants.find_one(
+            {"user_id": user["user_id"], "is_current": True, "is_dead": True}, {"_id": 0}
+        )
+        if not dead:
+            raise HTTPException(status_code=400, detail="No dead tree to revive")
+        plant_id = dead["plant_id"]
     token = await _paypal_access_token()
     base = _public_base(request)
     body = {
         "intent": "CAPTURE",
         "purchase_units": [{
-            "reference_id": "streak_freeze",
-            "description": "SproutGoals Streak Freeze — protects your tree for one missed day",
-            "amount": {"currency_code": "USD", "value": STREAK_FREEZE_PRICE},
+            "reference_id": product,
+            "description": info["description"],
+            "amount": {"currency_code": "USD", "value": info["price"]},
         }],
         "application_context": {
             "brand_name": "SproutGoals",
@@ -755,8 +783,9 @@ async def paypal_create_order(request: Request, authorization: Optional[str] = H
     await db.payments.insert_one({
         "order_id": order_id,
         "user_id": user["user_id"],
-        "product": "streak_freeze",
-        "amount": STREAK_FREEZE_PRICE,
+        "product": product,
+        "plant_id": plant_id,
+        "amount": info["price"],
         "currency": "USD",
         "status": "created",
         "created_at": now_utc(),
@@ -783,16 +812,34 @@ async def _capture_and_grant(order_id: str) -> str:
         completed = True
     if not completed:
         return payment["status"]
-    # Atomic status flip so the freeze is granted exactly once
+    # Atomic status flip so the purchase is granted exactly once
     res = await db.payments.update_one(
         {"order_id": order_id, "status": {"$ne": "completed"}},
         {"$set": {"status": "completed", "paid_at": now_utc()}},
     )
     if res.modified_count == 1:
-        await db.users.update_one(
-            {"user_id": payment["user_id"]},
-            {"$inc": {"streak_freezes": 1}},
-        )
+        if payment.get("product") == "tree_revive":
+            pid = payment.get("plant_id")
+            if pid:
+                # Restore the tree exactly as it was and make it current again
+                await db.plants.update_many(
+                    {"user_id": payment["user_id"], "is_current": True},
+                    {"$set": {"is_current": False}},
+                )
+                await db.plants.update_one(
+                    {"plant_id": pid},
+                    {"$set": {"is_dead": False, "died_at": None, "is_current": True}},
+                )
+                # Mark activity now so the stale-check doesn't immediately re-kill it
+                await db.users.update_one(
+                    {"user_id": payment["user_id"]},
+                    {"$set": {"last_activity_date": now_utc()}},
+                )
+        else:
+            await db.users.update_one(
+                {"user_id": payment["user_id"]},
+                {"$inc": {"streak_freezes": 1}},
+            )
     return "completed"
 
 def _paypal_result_page(ok: bool, title: str, message: str) -> HTMLResponse:
@@ -816,7 +863,9 @@ async def paypal_return(token: str = ""):
     except HTTPException:
         status = "error"
     if status == "completed":
-        return _paypal_result_page(True, "Streak Freeze purchased!", "Your tree is protected. You can close this window and return to SproutGoals.")
+        payment = await db.payments.find_one({"order_id": token}, {"_id": 0})
+        info = PAYPAL_PRODUCTS.get((payment or {}).get("product", ""), PAYPAL_PRODUCTS["streak_freeze"])
+        return _paypal_result_page(True, info["success_title"], info["success_message"])
     return _paypal_result_page(False, "Payment not completed", "The payment was not captured. Please try again from the app.")
 
 @api_router.get("/paypal/cancel")

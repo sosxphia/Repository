@@ -6,9 +6,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
-import * as WebBrowser from "expo-web-browser";
 import { useAuth } from "@/src/context/AuthContext";
 import { apiFetch } from "@/src/lib/api";
+import { buyWithPayPal } from "@/src/lib/paypal";
 import { StreakCalendar } from "@/src/components/StreakCalendar";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
@@ -42,7 +42,7 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [buying, setBuying] = useState(false);
-  const pollingRef = useRef(false);
+  const purchaseRef = useRef<{ cancel: () => void } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -63,57 +63,22 @@ export default function Profile() {
   const buyFreeze = async () => {
     if (buying) {
       // Tap again to stop waiting
-      pollingRef.current = false;
+      purchaseRef.current?.cancel();
       setBuying(false);
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setBuying(true);
-    try {
-      const order = await apiFetch("/paypal/orders", { method: "POST" });
-      if (!order?.approve_url) throw new Error("no approval url");
-      if (Platform.OS === "web") {
-        window.open(order.approve_url, "_blank");
-      } else {
-        WebBrowser.openBrowserAsync(order.approve_url);
-      }
-      // Poll for completion (up to 3 minutes)
-      pollingRef.current = true;
-      const started = Date.now();
-      const poll = async () => {
-        if (!pollingRef.current) return;
-        if (Date.now() - started > 180000) {
-          pollingRef.current = false;
-          setBuying(false);
-          return;
-        }
-        try {
-          const s = await apiFetch(`/paypal/orders/${order.order_id}/status`);
-          if (s.status === "completed") {
-            pollingRef.current = false;
-            setBuying(false);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            if (Platform.OS !== "web") {
-              try { WebBrowser.dismissBrowser(); } catch {}
-              Alert.alert("❄️ Streak Freeze added!", "Your tree is protected for one missed day.");
-            }
-            load();
-            return;
-          }
-          if (s.status === "cancelled") {
-            pollingRef.current = false;
-            setBuying(false);
-            return;
-          }
-        } catch {}
-        setTimeout(poll, 4000);
-      };
-      setTimeout(poll, 4000);
-    } catch (e) {
-      console.log("paypal order", e);
+    purchaseRef.current = buyWithPayPal("streak_freeze", (result) => {
       setBuying(false);
-      if (Platform.OS !== "web") Alert.alert("Oops", "Could not start PayPal checkout. Please try again.");
-    }
+      if (result === "completed") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (Platform.OS !== "web") Alert.alert("❄️ Streak Freeze added!", "Your tree is protected for one missed day.");
+        load();
+      } else if (result === "error" && Platform.OS !== "web") {
+        Alert.alert("Oops", "Could not start PayPal checkout. Please try again.");
+      }
+    });
   };
 
   const badges = [

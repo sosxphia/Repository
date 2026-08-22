@@ -56,3 +56,9 @@ Tactile / Playful (Personality 4) — cream #FFFCF6, sunshine yellow #F59E0B, em
 ## Streak Calendar (June 2026)
 - GET /api/activity-calendar?year=&month= → {year, month, active_days[], streak_days}; active days aggregated from focus_sessions.created_at, goals.completed_at, daily_quests.completed_at (UTC days).
 - New component /app/frontend/src/components/StreakCalendar.tsx (testIDs: streak-calendar, calendar-prev, calendar-next): month grid, green dot = active day, outlined = today, next-month disabled at current month. Shown on Profile under "Streak Calendar 🔥" above the Streak Freeze card.
+
+## Tree Revive (June 2026)
+- $2.99 PayPal purchase revives the dead current tree with FULL restore (same XP/branches/age; streak NOT restored). PAYPAL_PRODUCTS catalog in server.py {streak_freeze $1.99, tree_revive $2.99}.
+- POST /api/paypal/orders now accepts {product}; tree_revive requires a dead current plant (400 otherwise), stores plant_id on payment. Capture grants per product; revive also sets last_activity_date=now so stale-check doesn't re-kill.
+- Frontend: shared /app/frontend/src/lib/paypal.ts buyWithPayPal(product, onResult) helper (profile freeze flow refactored onto it). Memorial card: "Revive {name} · $2.99" (testID revive-button) + ghost "Or replant from seed (free)" (testID replant-button).
+- Tested: revive order creation, unknown-product 400, mocked-capture full-restore idempotency, 17/17 existing PayPal tests pass, UI screenshots.
