@@ -25,6 +25,7 @@ type Plant = {
   species?: string;
   xp: number;
   is_current: boolean;
+  is_dead?: boolean;
   stage: Stage;
   progress: { stage: Stage; stage_min: number; stage_max: number; in_stage: number; stage_span: number };
   bloomed_at: string | null;
@@ -32,10 +33,18 @@ type Plant = {
   created_at?: string;
 };
 
+type StreakStatus = {
+  at_risk: boolean;
+  active_today: boolean;
+  streak_days: number;
+  streak_freezes: number;
+};
+
 export default function Garden() {
   const router = useRouter();
   const [current, setCurrent] = useState<Plant | null>(null);
   const [completedGoals, setCompletedGoals] = useState<Goal[]>([]);
+  const [streak, setStreak] = useState<StreakStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -70,11 +79,13 @@ export default function Garden() {
 
   const load = useCallback(async () => {
     try {
-      const [cur, goals] = await Promise.all([
+      const [cur, goals, ss] = await Promise.all([
         apiFetch("/plants/current"),
         apiFetch("/goals"),
+        apiFetch("/streak-status").catch(() => null),
       ]);
       setCurrent(cur);
+      setStreak(ss);
       // Sort completed goals by completed_at ascending so branches appear in the order they were done
       const done = (goals as Goal[])
         .filter((g) => g.completed)
@@ -175,7 +186,62 @@ export default function Garden() {
           </Pressable>
         </View>
 
-        {/* Info card — stage, season, name, XP, progress (compact) */}
+        {/* Streak-at-risk warning */}
+        {streak?.at_risk && !current?.is_dead && (
+          <View style={styles.riskCard} testID="streak-risk-banner">
+            <Text style={styles.riskTitle}>🔥⚠️ Your streak breaks at midnight!</Text>
+            {streak.streak_freezes > 0 ? (
+              <Text style={styles.riskText}>
+                Complete a goal or focus session today — or one of your {streak.streak_freezes} ❄️ freezes will save your tree automatically.
+              </Text>
+            ) : (
+              <Text style={styles.riskText}>
+                Complete a goal or focus session today, or your tree will die! You have no ❄️ freezes left.
+              </Text>
+            )}
+            <View style={styles.riskRow}>
+              <Pressable
+                onPress={() => router.push("/(tabs)/timer")}
+                style={[styles.riskBtn, { backgroundColor: colors.brandSecondary }]}
+                testID="risk-focus-button"
+              >
+                <Text style={styles.riskBtnText}>⏱️ Focus now</Text>
+              </Pressable>
+              {streak.streak_freezes === 0 && (
+                <Pressable
+                  onPress={() => router.push("/(tabs)/profile")}
+                  style={[styles.riskBtn, { backgroundColor: "#0070BA" }]}
+                  testID="risk-freeze-button"
+                >
+                  <Text style={styles.riskBtnText}>❄️ Get a freeze</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
+
+        {current?.is_dead ? (
+          /* Memorial card — tree died */
+          <LinearGradient
+            colors={["#F5F1EA", "#E7E5E4"]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={[styles.infoCard, { borderColor: "#D6D3D1" }]}
+          >
+            <Text style={styles.deadEmoji}>💔</Text>
+            <Text style={styles.heroName} testID="dead-tree-title">{current.name} withered away…</Text>
+            <Text style={styles.deadSub}>
+              Your streak broke and the tree couldn't survive. Plant a new one — every big tree starts as a tiny seed. 🌱
+            </Text>
+            <Pressable
+              onPress={openReset}
+              style={({ pressed }) => [styles.replantBtn, pressed && { transform: [{ scale: 0.97 }] }]}
+              testID="replant-button"
+            >
+              <Text style={styles.replantText}>Replant a new tree 🌱</Text>
+            </Pressable>
+          </LinearGradient>
+        ) : (
+        /* Info card — stage, season, name, XP, progress (compact) */
         <LinearGradient
           colors={["#FEF3C7", "#DCFCE7"]}
           start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
@@ -210,6 +276,7 @@ export default function Garden() {
           </View>
           <Text style={styles.scrollHint}>Scroll ↓ to walk down your tree</Text>
         </LinearGradient>
+        )}
 
         {/* GIANT SCROLLABLE TREE — full journey from canopy to roots */}
         <View style={styles.treeCanvas}>
@@ -218,10 +285,11 @@ export default function Garden() {
             xp={current?.xp || 0}
             branches={completedGoals.length}
             ageDays={current?.created_at ? Math.max(0, Math.floor((Date.now() - new Date(current.created_at).getTime()) / 86400000)) : 0}
+            isDead={current?.is_dead || false}
             season={activeSeason}
             width={340}
           />
-          {(() => {
+          {!current?.is_dead && (() => {
             const kind: Weather =
               activeSeason === "autumn" ? "leaves"
               : activeSeason === "winter" ? "snow"
@@ -399,6 +467,26 @@ const styles = StyleSheet.create({
     alignItems: "center", borderWidth: 2, borderColor: "#FDE68A",
     shadowColor: colors.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 3,
   },
+  riskCard: {
+    backgroundColor: "#FEF2F2", borderRadius: radius.lg, padding: spacing.lg,
+    borderWidth: 2, borderColor: "#FECACA", marginBottom: spacing.md,
+  },
+  riskTitle: { fontSize: 16, fontWeight: "800", color: "#991B1B" },
+  riskText: { fontSize: 13, color: "#7F1D1D", marginTop: 6, lineHeight: 19 },
+  riskRow: { flexDirection: "row", gap: spacing.md, marginTop: spacing.md },
+  riskBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: radius.pill,
+    alignItems: "center", justifyContent: "center", minHeight: 44,
+  },
+  riskBtnText: { color: "#FFF", fontSize: 14, fontWeight: "800" },
+  deadEmoji: { fontSize: 52 },
+  deadSub: { fontSize: 13, color: "#57534E", marginTop: spacing.sm, textAlign: "center", lineHeight: 19 },
+  replantBtn: {
+    marginTop: spacing.lg, backgroundColor: colors.brandSecondary,
+    paddingVertical: 14, paddingHorizontal: spacing.xl, borderRadius: radius.pill,
+    alignSelf: "stretch", alignItems: "center", minHeight: 48, justifyContent: "center",
+  },
+  replantText: { color: "#FFF", fontSize: 15, fontWeight: "800" },
   treeCanvas: {
     marginTop: spacing.md,
     alignItems: "center",

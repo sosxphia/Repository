@@ -632,6 +632,29 @@ async def get_stats(authorization: Optional[str] = Header(None)):
         "streak_freezes": int(user.get("streak_freezes", 0)),
     }
 
+@api_router.get("/streak-status")
+async def streak_status(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    last = user.get("last_activity_date")
+    at_risk = False
+    active_today = False
+    if last:
+        if hasattr(last, "date"):
+            last_date = last.date() if last.tzinfo else last.replace(tzinfo=timezone.utc).date()
+        else:
+            last_date = datetime.fromisoformat(str(last)).date()
+        today = now_utc().date()
+        gap = (today - last_date).days
+        active_today = gap == 0
+        # Nothing done today + last activity was yesterday → streak breaks at midnight
+        at_risk = gap == 1 and user.get("streak_days", 0) > 0
+    return {
+        "at_risk": at_risk,
+        "active_today": active_today,
+        "streak_days": user.get("streak_days", 0),
+        "streak_freezes": int(user.get("streak_freezes", 0)),
+    }
+
 # ---------- PayPal (Streak Freeze purchase) ----------
 PAYPAL_BASE = os.environ.get("PAYPAL_BASE_URL", "https://api-m.sandbox.paypal.com")
 STREAK_FREEZE_PRICE = "1.99"

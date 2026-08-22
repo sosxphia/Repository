@@ -108,3 +108,7 @@
 - verified by main agent: order creation against real sandbox creds OK; cancel + status transitions OK; unapproved return shows "Payment not completed"; exactly-once grant verified via mocked capture (freezes=1 after double capture).
 - NOT tested: real PayPal buyer approval (requires sandbox buyer login — cannot automate).
 - needs_retesting: true (backend flow regression + auth guards)
+
+## Freeze Reminder + Dead Tree Visual (June 2026)
+- GET /api/streak-status (auth) added; garden.tsx risk banner + dead memorial card + replant; TreeView DeadTree render.
+- Main agent verified via curl + screenshots: at_risk logic, banner render, dead tree render, replant creates alive tree. needs_retesting: false

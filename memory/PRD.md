@@ -46,3 +46,9 @@ Tactile / Playful (Personality 4) — cream #FFFCF6, sunshine yellow #F59E0B, em
 - Frontend: profile.tsx "Streak Freeze" card (owned count + PayPal buy button) → opens approval URL (window.open on web / WebBrowser on native), polls status 4s/3min, success haptic + reload.
 - Tree-death mechanic already existed: _check_and_kill_stale_plant consumes freezes on missed days, else kills tree + resets streak.
 - Tested: 43/43 backend tests pass (iteration_3.json). Real buyer approval requires PayPal sandbox buyer login (user must test manually).
+
+## Freeze Reminder + Dead Tree Visual (June 2026)
+- GET /api/streak-status → {at_risk, active_today, streak_days, streak_freezes}. at_risk = no activity today AND last activity yesterday AND streak > 0.
+- Garden shows red warning banner (testID streak-risk-banner) when at_risk: message adapts to freeze count; CTAs "Focus now" + "Get a freeze" (→profile, only when 0 freezes).
+- Dead state: when plant.is_dead, garden shows grey memorial card ("X withered away…") + "Replant a new tree" button (testID replant-button → existing reset modal). TreeView isDead prop renders wilted grey DeadTree SVG (snapped top, drooping bare branches, empty bird hole, cracks, fallen leaves).
+- Verified: banner screenshot, dead tree screenshot, replant → fresh alive tree via /plants/{id}/reset.

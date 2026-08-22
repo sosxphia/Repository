@@ -65,6 +65,8 @@ type Props = {
   branches: number;
   /** Days since the tree was planted — trunk thickens every 10 days, capped at day 100 */
   ageDays?: number;
+  /** Streak was lost — render a wilted grey dead tree */
+  isDead?: boolean;
   width?: number;
   season?: Season;
 };
@@ -314,6 +316,101 @@ function StumpDetail({
   );
 }
 
+// Wilted, grey dead tree — shown when the streak broke and the tree died
+function DeadTree({ width }: { width: number }) {
+  const H = 1000;
+  const GY = 880;
+  const cx = CANVAS_W / 2;
+  const finalHeight = Math.round((H / CANVAS_W) * width);
+  const trunk = "#8C7A6B";
+  const trunkDark = "#5C5148";
+  const trunkLight = "#A99C8D";
+  const deadPalette: Palette = {
+    trunk, trunkDark, trunkLight,
+    leafBase: "#78716C", leafMain: "#A8A29E", leafLight: "#D6D3D1",
+    fruit: "#A8A29E", ground: "#E7E5E4", ground2: "#D6D3D1", sky: "#F5F1EA", canopyScale: 0,
+  };
+  const baseW = 64;
+  const topW = 32;
+  const topY = 230;
+  const midY = (topY + GY) / 2;
+  const midW = baseW * 0.78;
+  return (
+    <View style={{ width, height: finalHeight, alignSelf: "center" }} testID="dead-tree-svg">
+      <Svg width={width} height={finalHeight} viewBox={`0 0 ${CANVAS_W} ${H}`}>
+        {/* Overcast sky */}
+        <Path d={`M0 0 H${CANVAS_W} V${H} H0 Z`} fill="#F5F1EA" />
+        {/* Grey hills */}
+        <Ellipse cx={70} cy={GY + 50} rx={160} ry={45} fill="#D6D3D1" opacity={0.55} />
+        <Ellipse cx={CANVAS_W - 60} cy={GY + 40} rx={140} ry={38} fill="#D6D3D1" opacity={0.55} />
+        {/* Ground */}
+        <Ellipse cx={cx} cy={GY + 34} rx={220} ry={52} fill="#E7E5E4" />
+        <Ellipse cx={cx} cy={GY + 22} rx={190} ry={36} fill="#D6D3D1" />
+
+        {/* Trunk — tapered, grey-brown */}
+        <Path
+          d={`M ${cx - baseW / 2} ${GY}
+              Q ${cx - midW / 2 - 4} ${midY + 100}, ${cx - midW / 2} ${midY - 30}
+              Q ${cx - topW / 2 - 4} ${topY + 120}, ${cx - topW / 2 + 2} ${topY}
+              L ${cx + topW / 2 - 2} ${topY}
+              Q ${cx + topW / 2 + 4} ${topY + 120}, ${cx + midW / 2} ${midY - 30}
+              Q ${cx + midW / 2 + 4} ${midY + 100}, ${cx + baseW / 2} ${GY} Z`}
+          fill={trunk}
+        />
+        {/* Snapped jagged top */}
+        <Path
+          d={`M ${cx - topW / 2 + 2} ${topY + 2}
+              L ${cx - topW * 0.22} ${topY - 26}
+              L ${cx - topW * 0.02} ${topY - 2}
+              L ${cx + topW * 0.18} ${topY - 32}
+              L ${cx + topW / 2 - 2} ${topY + 2} Z`}
+          fill={trunkDark}
+        />
+        {/* Shading */}
+        <Path
+          d={`M ${cx - baseW / 2} ${GY}
+              Q ${cx - midW / 2 - 4} ${midY + 100}, ${cx - midW / 2} ${midY - 30}
+              Q ${cx - topW / 2 - 4} ${topY + 120}, ${cx - topW / 2 + 2} ${topY}
+              L ${cx - topW / 2 + 9} ${topY}
+              Q ${cx - midW / 2 + 6} ${midY - 30}, ${cx - midW / 2 + 4} ${midY + 100}
+              Q ${cx - baseW / 2 + 8} ${GY - 5}, ${cx - baseW / 2} ${GY} Z`}
+          fill={trunkDark}
+          opacity={0.45}
+        />
+        {/* Drooping bare branches */}
+        <G stroke={trunk} fill="none" strokeLinecap="round">
+          <Path d={`M ${cx - 24} 380 Q ${cx - 95} 366, ${cx - 138} 416`} strokeWidth={15} />
+          <Path d={`M ${cx - 100} 375 Q ${cx - 118} 392, ${cx - 122} 420`} strokeWidth={6} />
+          <Path d={`M ${cx + 24} 500 Q ${cx + 92} 490, ${cx + 130} 548`} strokeWidth={14} />
+          <Path d={`M ${cx + 95} 500 Q ${cx + 108} 516, ${cx + 108} 542`} strokeWidth={6} />
+          <Path d={`M ${cx - 24} 640 Q ${cx - 72} 636, ${cx - 98} 676`} strokeWidth={11} />
+        </G>
+        {/* Broken branch stub */}
+        <Path d={`M ${cx + 20} 330 L ${cx + 52} 322 L ${cx + 50} 334 L ${cx + 20} 344 Z`} fill={trunkDark} />
+        {/* Empty bird hole */}
+        <BirdHole cx={cx} cy={560} r={13} palette={deadPalette} withBird={false} />
+        {/* Cracks */}
+        <G stroke={trunkDark} strokeWidth={2.5} fill="none" opacity={0.55} strokeLinecap="round">
+          <Path d={`M ${cx - 6} ${GY - 40} l -5 -34 l 7 -26 M ${cx - 11} ${GY - 74} l -9 -16`} />
+          <Path d={`M ${cx + 10} 430 l 4 -30 l -5 -22`} />
+        </G>
+        {/* Root flares */}
+        <Path d={`M ${cx - baseW / 2 + 6} ${GY - 50} Q ${cx - baseW / 2 - 6} ${GY - 20}, ${cx - baseW / 2 - 38} ${GY + 4} L ${cx - baseW / 2 + 12} ${GY + 8} Z`} fill={trunk} />
+        <Path d={`M ${cx + baseW / 2 - 6} ${GY - 50} Q ${cx + baseW / 2 + 6} ${GY - 20}, ${cx + baseW / 2 + 38} ${GY + 4} L ${cx + baseW / 2 - 12} ${GY + 8} Z`} fill={trunk} />
+        {/* One last leaf hanging on */}
+        <Ellipse cx={cx + 126} cy={556} rx={9} ry={4.5} fill="#B45309" opacity={0.8} transform={`rotate(65 ${cx + 126} 556)`} />
+        {/* Fallen dead leaves */}
+        <G opacity={0.7}>
+          <Ellipse cx={cx - 90} cy={GY + 8} rx={9} ry={4} fill="#A16207" transform={`rotate(-15 ${cx - 90} ${GY + 8})`} />
+          <Ellipse cx={cx + 70} cy={GY + 14} rx={8} ry={4} fill="#92400E" transform={`rotate(20 ${cx + 70} ${GY + 14})`} />
+          <Ellipse cx={cx - 30} cy={GY + 18} rx={7} ry={3.5} fill="#A16207" transform={`rotate(40 ${cx - 30} ${GY + 18})`} />
+          <Ellipse cx={cx + 120} cy={GY + 6} rx={8} ry={4} fill="#78350F" transform={`rotate(-30 ${cx + 120} ${GY + 6})`} />
+        </G>
+      </Svg>
+    </View>
+  );
+}
+
 // Tiny leafy sprig growing from the side of the trunk
 function TrunkSprig({
   x, y, side, palette,
@@ -343,10 +440,15 @@ function TrunkSprig({
   );
 }
 
-export function TreeView({ stage, xp, branches: branchCount, ageDays = 0, width = CANVAS_W, season }: Props) {
+export function TreeView({ stage, xp, branches: branchCount, ageDays = 0, isDead = false, width = CANVAS_W, season }: Props) {
   const activeSeason = season ?? seasonNow();
   const p = PALETTES[activeSeason];
   const cx = CANVAS_W / 2;
+
+  if (isDead) {
+    return <DeadTree width={width} />;
+  }
+
   // Trunk thickens 8% every 10 days of the tree's life, capped at day 100 (up to 1.8x)
   const growthSteps = Math.floor(Math.min(Math.max(ageDays, 0), 100) / 10);
   const baseW = TRUNK_BASE_W[stage] * (1 + 0.08 * growthSteps);
