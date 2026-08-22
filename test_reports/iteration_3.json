@@ -1,0 +1,39 @@
+{
+  "summary": "PayPal Streak Freeze integration verified end-to-end against real PayPal sandbox. 17/17 new PayPal tests green + 26/26 existing regression tests still green (43/43 total). Coverage: (a) Auth guards — POST /api/paypal/orders and GET /api/paypal/orders/{id}/status both return 401 without Bearer and 401 for a garbage Bearer. (b) POST /api/paypal/orders creates a real sandbox order, returns {order_id, approve_url}, approve_url points to paypal.com, and a payments doc is inserted with user_id=ui-test-user, product=streak_freeze, amount=1.99, currency=USD, status='created'. (c) GET /api/paypal/orders/{order_id}/status returns {status, streak_freezes} where streak_freezes matches users.streak_freezes; unknown order → 404; another user's order → 404 (per-user scoping enforced). (d) GET /api/paypal/return without token → HTML 'Something went wrong / Missing order reference'. (e) GET /api/paypal/return?token=<unapproved order> → HTML 'Payment not completed'; payments.status stays 'created' and users.streak_freezes is UNCHANGED — confirms the capture failure path does NOT grant a freeze. (f) GET /api/paypal/cancel?token=<created order> → HTML 'Payment cancelled' and status endpoint then returns 'cancelled'; cancel does NOT downgrade an already-completed payment (guarded by {status: {$ne: 'completed'}}). (g) GET /api/stats includes streak_freezes as int. (h) Regression: /api/plants/current, /api/goals, /api/stats, /api/daily-quest, /api/weekly-recap all 200 with expected schemas. Note: Real buyer-approved capture was NOT exercised (requires PayPal sandbox buyer login, cannot be automated) — main agent already covered exactly-once grant via mocked capture.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_paypal.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/paypal_results.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server._capture_and_grant (server.py:706-736) uses an atomic status flip {status: {$ne: 'completed'}} → {status: 'completed'} before $inc streak_freezes — exactly-once semantics preserved even under concurrent capture calls.",
+    "server.paypal_cancel (server.py:762-769) correctly guards {status: {$ne: 'completed'}} so a completed payment cannot be downgraded to 'cancelled' — verified.",
+    "server.paypal_order_status (server.py:771-778) scopes the payments lookup by both order_id AND user_id → prevents user A from reading user B's order status (verified via cross-user 404 test).",
+    "server.paypal_return returns HTML 'Payment not completed' when capture yields non-completed status, and does NOT modify streak_freezes — verified against a real unapproved sandbox order.",
+    "GET /api/stats exposes streak_freezes as int (int coerced with int(user.get('streak_freezes', 0))) — safe for users seeded without the field."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_paypal.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (43/43 including 17 new PayPal tests)",
+    "frontend": "N/A (backend-only request per review)"
+  },
+  "seed_data_creation": "Reused pre-seeded ui-test-user + session token uitest_token_123. Fixture refreshes expires_at to now+7d (idempotent). Test-created payments docs (TEST_OTHER_*, TEST_CANCEL_*, TEST_DONE_*, and the one real sandbox order_id) are torn down after tests. Exactly ONE real PayPal sandbox order was created for this run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "PayPal sandbox endpoints are locked. Future runs: reuse /app/backend/tests/test_paypal.py; keep the module-scoped `sandbox_order` fixture so at most one real PayPal order is created per run. The real buyer-approved capture path cannot be automated headless — main agent already verified exactly-once grant via mocked capture; do not attempt to log into PayPal. Seeded user has streak_freezes=1 in Mongo; if you reset it, update TestStatsHasStreakFreezes expectations accordingly (test reads from DB, so it's dynamic).",
+  "rca_of_issue": "N/A — no bugs found."
+}

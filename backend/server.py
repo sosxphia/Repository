@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -629,7 +629,153 @@ async def get_stats(authorization: Optional[str] = Header(None)):
         "total_plants": total_plants,
         "bloomed_plants": bloomed,
         "total_focus_sessions": total_sessions,
+        "streak_freezes": int(user.get("streak_freezes", 0)),
     }
+
+# ---------- PayPal (Streak Freeze purchase) ----------
+PAYPAL_BASE = os.environ.get("PAYPAL_BASE_URL", "https://api-m.sandbox.paypal.com")
+STREAK_FREEZE_PRICE = "1.99"
+
+async def _paypal_access_token() -> str:
+    cid = os.environ.get("PAYPAL_CLIENT_ID")
+    secret = os.environ.get("PAYPAL_SECRET")
+    if not cid or not secret:
+        raise HTTPException(status_code=503, detail="PayPal is not configured")
+    async with httpx.AsyncClient(timeout=20.0) as http:
+        r = await http.post(
+            f"{PAYPAL_BASE}/v1/oauth2/token",
+            auth=(cid, secret),
+            data={"grant_type": "client_credentials"},
+        )
+    if r.status_code != 200:
+        logger.error(f"paypal token error {r.status_code}: {r.text}")
+        raise HTTPException(status_code=502, detail="PayPal authentication failed")
+    return r.json()["access_token"]
+
+def _public_base(request: Request) -> str:
+    proto = request.headers.get("x-forwarded-proto", "https")
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    return f"{proto}://{host}"
+
+@api_router.post("/paypal/orders")
+async def paypal_create_order(request: Request, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    token = await _paypal_access_token()
+    base = _public_base(request)
+    body = {
+        "intent": "CAPTURE",
+        "purchase_units": [{
+            "reference_id": "streak_freeze",
+            "description": "SproutGoals Streak Freeze — protects your tree for one missed day",
+            "amount": {"currency_code": "USD", "value": STREAK_FREEZE_PRICE},
+        }],
+        "application_context": {
+            "brand_name": "SproutGoals",
+            "shipping_preference": "NO_SHIPPING",
+            "user_action": "PAY_NOW",
+            "return_url": f"{base}/api/paypal/return",
+            "cancel_url": f"{base}/api/paypal/cancel",
+        },
+    }
+    async with httpx.AsyncClient(timeout=20.0) as http:
+        r = await http.post(
+            f"{PAYPAL_BASE}/v2/checkout/orders",
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    if r.status_code not in (200, 201):
+        logger.error(f"paypal create order error {r.status_code}: {r.text}")
+        raise HTTPException(status_code=502, detail="Could not create PayPal order")
+    data = r.json()
+    order_id = data["id"]
+    approve_url = next(
+        (l["href"] for l in data.get("links", []) if l.get("rel") in ("approve", "payer-action")),
+        None,
+    )
+    await db.payments.insert_one({
+        "order_id": order_id,
+        "user_id": user["user_id"],
+        "product": "streak_freeze",
+        "amount": STREAK_FREEZE_PRICE,
+        "currency": "USD",
+        "status": "created",
+        "created_at": now_utc(),
+    })
+    return {"order_id": order_id, "approve_url": approve_url}
+
+async def _capture_and_grant(order_id: str) -> str:
+    """Capture the PayPal order and grant a streak freeze exactly once. Returns final status."""
+    payment = await db.payments.find_one({"order_id": order_id}, {"_id": 0})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Unknown order")
+    if payment["status"] == "completed":
+        return "completed"
+    token = await _paypal_access_token()
+    async with httpx.AsyncClient(timeout=20.0) as http:
+        r = await http.post(
+            f"{PAYPAL_BASE}/v2/checkout/orders/{order_id}/capture",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
+    completed = False
+    if r.status_code in (200, 201):
+        completed = r.json().get("status") == "COMPLETED"
+    elif r.status_code == 422 and "ORDER_ALREADY_CAPTURED" in r.text:
+        completed = True
+    if not completed:
+        return payment["status"]
+    # Atomic status flip so the freeze is granted exactly once
+    res = await db.payments.update_one(
+        {"order_id": order_id, "status": {"$ne": "completed"}},
+        {"$set": {"status": "completed", "paid_at": now_utc()}},
+    )
+    if res.modified_count == 1:
+        await db.users.update_one(
+            {"user_id": payment["user_id"]},
+            {"$inc": {"streak_freezes": 1}},
+        )
+    return "completed"
+
+def _paypal_result_page(ok: bool, title: str, message: str) -> HTMLResponse:
+    emoji = "❄️" if ok else "🍂"
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body {{ font-family: -apple-system, sans-serif; background: #FFFCF6; display: flex; align-items: center; justify-content: center; min-height: 90vh; margin: 0; }}
+.card {{ text-align: center; padding: 32px; background: #FFF; border-radius: 24px; border: 2px solid #FDE68A; max-width: 320px; }}
+h1 {{ font-size: 44px; margin: 0 0 8px; }} h2 {{ color: #1F2937; margin: 0 0 8px; }} p {{ color: #6B7280; }}
+</style></head>
+<body><div class="card"><h1>{emoji}</h1><h2>{title}</h2><p>{message}</p></div></body></html>""")
+
+@api_router.get("/paypal/return")
+async def paypal_return(token: str = ""):
+    # PayPal redirects here with ?token=<order_id>&PayerID=...
+    if not token:
+        return _paypal_result_page(False, "Something went wrong", "Missing order reference. Please try again from the app.")
+    try:
+        status = await _capture_and_grant(token)
+    except HTTPException:
+        status = "error"
+    if status == "completed":
+        return _paypal_result_page(True, "Streak Freeze purchased!", "Your tree is protected. You can close this window and return to SproutGoals.")
+    return _paypal_result_page(False, "Payment not completed", "The payment was not captured. Please try again from the app.")
+
+@api_router.get("/paypal/cancel")
+async def paypal_cancel(token: str = ""):
+    if token:
+        await db.payments.update_one(
+            {"order_id": token, "status": {"$ne": "completed"}},
+            {"$set": {"status": "cancelled"}},
+        )
+    return _paypal_result_page(False, "Payment cancelled", "No worries — you can close this window and return to SproutGoals.")
+
+@api_router.get("/paypal/orders/{order_id}/status")
+async def paypal_order_status(order_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    payment = await db.payments.find_one({"order_id": order_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Unknown order")
+    u = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return {"status": payment["status"], "streak_freezes": int(u.get("streak_freezes", 0))}
 
 @api_router.get("/")
 async def root():
@@ -667,6 +813,7 @@ async def startup():
     await db.daily_quests.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.daily_quests.create_index("quest_id", unique=True)
     await db.focus_sessions.create_index("user_id")
+    await db.payments.create_index("order_id", unique=True)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

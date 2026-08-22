@@ -1,11 +1,12 @@
-import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl, Modal, Share } from "react-native";
+import { useCallback, useRef, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl, Modal, Share, Platform, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
+import * as WebBrowser from "expo-web-browser";
 import { useAuth } from "@/src/context/AuthContext";
 import { apiFetch } from "@/src/lib/api";
 import { colors, spacing, radius } from "@/src/lib/theme";
@@ -17,6 +18,7 @@ type Stats = {
   total_plants: number;
   bloomed_plants: number;
   total_focus_sessions: number;
+  streak_freezes: number;
 };
 
 type Recap = {
@@ -38,6 +40,8 @@ export default function Profile() {
   const [recapOpen, setRecapOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [buying, setBuying] = useState(false);
+  const pollingRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -54,6 +58,62 @@ export default function Profile() {
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const buyFreeze = async () => {
+    if (buying) {
+      // Tap again to stop waiting
+      pollingRef.current = false;
+      setBuying(false);
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setBuying(true);
+    try {
+      const order = await apiFetch("/paypal/orders", { method: "POST" });
+      if (!order?.approve_url) throw new Error("no approval url");
+      if (Platform.OS === "web") {
+        window.open(order.approve_url, "_blank");
+      } else {
+        WebBrowser.openBrowserAsync(order.approve_url);
+      }
+      // Poll for completion (up to 3 minutes)
+      pollingRef.current = true;
+      const started = Date.now();
+      const poll = async () => {
+        if (!pollingRef.current) return;
+        if (Date.now() - started > 180000) {
+          pollingRef.current = false;
+          setBuying(false);
+          return;
+        }
+        try {
+          const s = await apiFetch(`/paypal/orders/${order.order_id}/status`);
+          if (s.status === "completed") {
+            pollingRef.current = false;
+            setBuying(false);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            if (Platform.OS !== "web") {
+              try { WebBrowser.dismissBrowser(); } catch {}
+              Alert.alert("❄️ Streak Freeze added!", "Your tree is protected for one missed day.");
+            }
+            load();
+            return;
+          }
+          if (s.status === "cancelled") {
+            pollingRef.current = false;
+            setBuying(false);
+            return;
+          }
+        } catch {}
+        setTimeout(poll, 4000);
+      };
+      setTimeout(poll, 4000);
+    } catch (e) {
+      console.log("paypal order", e);
+      setBuying(false);
+      if (Platform.OS !== "web") Alert.alert("Oops", "Could not start PayPal checkout. Please try again.");
+    }
+  };
 
   const badges = [
     { key: "streak", label: "3-day Streak", emoji: "🔥", unlocked: (stats?.streak_days ?? 0) >= 3 },
@@ -146,8 +206,42 @@ export default function Profile() {
               </View>
             </View>
 
-            <Text style={styles.sectionTitle}>Badges</Text>
-            <View style={styles.badgeGrid}>
+            {/* Streak Freeze shop */}
+            <LinearGradient
+              colors={["#E0F2FE", "#DBEAFE"]}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={styles.freezeCard}
+            >
+              <View style={styles.freezeHeader}>
+                <View style={{ flex: 1, paddingRight: spacing.md }}>
+                  <Text style={styles.freezeTitle}>❄️ Streak Freeze</Text>
+                  <Text style={styles.freezeSub}>Miss a day and your tree dies — a freeze covers one missed day automatically.</Text>
+                </View>
+                <View style={styles.freezeCount}>
+                  <Text style={styles.freezeCountVal} testID="freeze-count">{stats?.streak_freezes ?? 0}</Text>
+                  <Text style={styles.freezeCountLabel}>owned</Text>
+                </View>
+              </View>
+              <Pressable
+                onPress={buyFreeze}
+                style={({ pressed }) => [styles.freezeBtn, pressed && { transform: [{ scale: 0.97 }] }, buying && { backgroundColor: "#64748B" }]}
+                testID="buy-freeze-button"
+              >
+                {buying ? (
+                  <>
+                    <ActivityIndicator color="#FFF" size="small" />
+                    <Text style={styles.freezeBtnText}>Waiting for PayPal… tap to cancel</Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="logo-paypal" size={18} color="#FFF" />
+                    <Text style={styles.freezeBtnText}>Get one · $1.99 with PayPal</Text>
+                  </>
+                )}
+              </Pressable>
+            </LinearGradient>
+
+            <Text style={styles.sectionTitle}>Badges</Text>            <View style={styles.badgeGrid}>
               {badges.map((b) => (
                 <View key={b.key} style={[styles.badge, !b.unlocked && styles.badgeLocked]}>
                   <Text style={[styles.badgeEmoji, !b.unlocked && { opacity: 0.3 }]}>{b.emoji}</Text>
@@ -258,6 +352,25 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 28, fontWeight: "800", color: colors.onSurface, marginTop: 4 },
   statLabel: { fontSize: 12, color: colors.onSurfaceMuted, fontWeight: "600" },
   sectionTitle: { fontSize: 18, fontWeight: "700", color: colors.onSurface, marginTop: spacing.xl, marginBottom: spacing.md },
+  freezeCard: {
+    marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.lg,
+    borderWidth: 2, borderColor: "#BFDBFE",
+  },
+  freezeHeader: { flexDirection: "row", alignItems: "center" },
+  freezeTitle: { fontSize: 17, fontWeight: "800", color: "#0C4A6E" },
+  freezeSub: { fontSize: 12, color: "#075985", marginTop: 4, lineHeight: 17 },
+  freezeCount: {
+    backgroundColor: "#FFF", borderRadius: radius.lg, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
+    alignItems: "center", borderWidth: 2, borderColor: "#BFDBFE",
+  },
+  freezeCountVal: { fontSize: 24, fontWeight: "800", color: "#0369A1" },
+  freezeCountLabel: { fontSize: 10, fontWeight: "700", color: "#075985" },
+  freezeBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: "#0070BA", paddingVertical: 14, borderRadius: radius.pill,
+    marginTop: spacing.md, minHeight: 48,
+  },
+  freezeBtnText: { color: "#FFF", fontSize: 14, fontWeight: "800" },
   badgeGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
   badge: {
     width: "30.5%", aspectRatio: 1,

@@ -39,3 +39,10 @@ Tactile / Playful (Personality 4) — cream #FFFCF6, sunshine yellow #F59E0B, em
 - Trunk thickness now grows with tree AGE: +8% per 10 full days since plant `created_at`, capped at day 100 (max 1.8x base width). Computed in garden.tsx as `ageDays`, passed to `TreeView`.
 - Stump redesigned with `StumpDetail` component: big root flares, knuckle roots, bark ridges/crack, moss, grass tufts, red mushroom, pebbles — drawn over the trunk base.
 - Test plant for `ui-test-user` was backdated 45 days to verify thickening.
+
+## PayPal Streak Freeze (June 2026)
+- $1.99 Streak Freeze purchase via PayPal (SANDBOX creds in backend/.env: PAYPAL_CLIENT_ID/PAYPAL_SECRET/PAYPAL_BASE_URL).
+- Backend: POST /api/paypal/orders (create), GET /api/paypal/return (capture + grant exactly once → users.streak_freezes +1, HTML result page), GET /api/paypal/cancel, GET /api/paypal/orders/{id}/status (polling). payments collection {order_id, user_id, product, amount, status}. /api/stats returns streak_freezes.
+- Frontend: profile.tsx "Streak Freeze" card (owned count + PayPal buy button) → opens approval URL (window.open on web / WebBrowser on native), polls status 4s/3min, success haptic + reload.
+- Tree-death mechanic already existed: _check_and_kill_stale_plant consumes freezes on missed days, else kills tree + resets streak.
+- Tested: 43/43 backend tests pass (iteration_3.json). Real buyer approval requires PayPal sandbox buyer login (user must test manually).

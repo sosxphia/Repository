@@ -101,3 +101,10 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+## PayPal Streak Freeze Integration (June 2026)
+- task: PayPal sandbox payment for Streak Freeze ($1.99) granting users.streak_freezes +1
+- implemented: POST /api/paypal/orders (auth, creates sandbox order, stores payments doc, returns approve_url), GET /api/paypal/return?token= (captures + grants exactly once, HTML result page), GET /api/paypal/cancel?token= (marks cancelled), GET /api/paypal/orders/{id}/status (auth, polling), /api/stats now includes streak_freezes.
+- frontend: profile.tsx Streak Freeze card (testID buy-freeze-button, freeze-count) → opens PayPal approval in browser, polls status every 4s for 3 min.
+- verified by main agent: order creation against real sandbox creds OK; cancel + status transitions OK; unapproved return shows "Payment not completed"; exactly-once grant verified via mocked capture (freezes=1 after double capture).
+- NOT tested: real PayPal buyer approval (requires sandbox buyer login — cannot automate).
+- needs_retesting: true (backend flow regression + auth guards)
