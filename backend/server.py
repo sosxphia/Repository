@@ -6,6 +6,8 @@ import os
 import logging
 import uuid
 import httpx
+import jwt
+from jwt import PyJWKClient
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -65,6 +67,11 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
 # ---------- Models ----------
 class SessionRequest(BaseModel):
     session_id: str
+
+class AppleAuthRequest(BaseModel):
+    identity_token: str
+    name: Optional[str] = None
+    email: Optional[str] = None
 
 class GoalCreate(BaseModel):
     title: str
@@ -138,6 +145,92 @@ async def create_session(payload: SessionRequest):
             "bloomed_at": None,
         })
 
+    await db.user_sessions.insert_one({
+        "session_token": session_token,
+        "user_id": user_id,
+        "created_at": now_utc(),
+        "expires_at": now_utc() + timedelta(days=7),
+    })
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return {"session_token": session_token, "user": user}
+
+APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
+APPLE_ISSUER = "https://appleid.apple.com"
+_apple_jwks_client: Optional[PyJWKClient] = None
+
+def _get_apple_jwks_client() -> PyJWKClient:
+    global _apple_jwks_client
+    if _apple_jwks_client is None:
+        _apple_jwks_client = PyJWKClient(APPLE_JWKS_URL)
+    return _apple_jwks_client
+
+@api_router.post("/auth/apple")
+async def auth_apple(payload: AppleAuthRequest):
+    audiences = [a.strip() for a in os.environ.get("APPLE_AUDIENCES", "").split(",") if a.strip()]
+    if not audiences:
+        raise HTTPException(status_code=500, detail="Apple audiences not configured")
+    try:
+        signing_key = _get_apple_jwks_client().get_signing_key_from_jwt(payload.identity_token)
+        claims = jwt.decode(
+            payload.identity_token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=audiences,
+            issuer=APPLE_ISSUER,
+        )
+    except jwt.PyJWTError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Apple identity token: {e}")
+
+    apple_sub = claims.get("sub")
+    if not apple_sub:
+        raise HTTPException(status_code=401, detail="Missing sub in Apple token")
+    token_email = claims.get("email")
+    email = token_email or (payload.email if payload.email else None)
+    name = payload.name
+
+    # 1) lookup by apple_sub
+    existing = await db.users.find_one({"apple_sub": apple_sub}, {"_id": 0})
+    # 2) fallback lookup by email to link Apple sign-in with an existing Google user
+    if not existing and email:
+        existing = await db.users.find_one({"email": email}, {"_id": 0})
+        if existing:
+            await db.users.update_one({"user_id": existing["user_id"]}, {"$set": {"apple_sub": apple_sub}})
+
+    if existing:
+        user_id = existing["user_id"]
+        set_fields = {"apple_sub": apple_sub}
+        # Apple only returns email/name on FIRST sign-in — never overwrite with nulls
+        if email and not existing.get("email"):
+            set_fields["email"] = email
+        if name and not existing.get("name"):
+            set_fields["name"] = name
+        await db.users.update_one({"user_id": user_id}, {"$set": set_fields})
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one({
+            "user_id": user_id,
+            "apple_sub": apple_sub,
+            "email": email,
+            "name": name,
+            "picture": None,
+            "created_at": now_utc(),
+            "streak_days": 0,
+            "last_activity_date": None,
+            "total_focus_minutes": 0,
+            "total_tasks_completed": 0,
+        })
+        await db.plants.insert_one({
+            "plant_id": f"plant_{uuid.uuid4().hex[:12]}",
+            "user_id": user_id,
+            "name": "My First Plant",
+            "species": "succulent",
+            "xp": 0,
+            "is_current": True,
+            "created_at": now_utc(),
+            "bloomed_at": None,
+        })
+
+    session_token = f"apple_{uuid.uuid4().hex}"
     await db.user_sessions.insert_one({
         "session_token": session_token,
         "user_id": user_id,
@@ -511,8 +604,16 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    await db.users.create_index("email", unique=True)
+    # Migrate legacy email unique index → sparse (Apple users may not have email)
+    try:
+        idx_info = await db.users.index_information()
+        if "email_1" in idx_info and (idx_info["email_1"].get("unique") or not idx_info["email_1"].get("sparse")):
+            await db.users.drop_index("email_1")
+    except Exception as e:
+        logger.warning(f"index migration: {e}")
+    await db.users.create_index("email", sparse=True)
     await db.users.create_index("user_id", unique=True)
+    await db.users.create_index("apple_sub", unique=True, sparse=True)
     await db.user_sessions.create_index("session_token", unique=True)
     await db.user_sessions.create_index("user_id")
     await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)

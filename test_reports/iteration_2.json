@@ -1,0 +1,27 @@
+{
+  "summary": "Apple Sign-In integration verified end-to-end for backend and web frontend. Backend: 26/26 pytest green. New TestAppleAuth class covers POST /api/auth/apple with (a) garbage JWT-shaped token → 401 with detail starting 'Invalid Apple identity token', (b) random non-JWT string → 401 same detail, (c) empty JSON body → 422, (d) empty raw body → 422, (e) .env has APPLE_AUDIENCES='com.emergent.growbygoals.off8vr,host.exp.Exponent'. New TestUserIndexes verified startup migration ran: users.email_1 is sparse=True, unique=False; users.apple_sub_1 is unique=True + sparse=True; users.user_id_1 unique=True. Existing Google auth regression clean: /api/auth/session with invalid session_id → 401; seeded Bearer token works with /api/auth/me, /api/plants/current, /api/goals, /api/stats, /api/daily-quest, /api/weekly-recap and PATCH /api/plants/{id} (note update). Health /api/ returns {'message':'SproutGoals API'}. Frontend: /login renders SproutGoals title, 3 feature cards, and 'Continue with Google' (testID=login-google-button). Apple button (testID=login-apple-wrap) correctly does NOT render on web (gated by Platform.OS==='ios' && appleAvailable). No console errors about missing native module for expo-apple-authentication on web. Token-bypass flow works: seeding user+session in Mongo and injecting sprout_session_token to localStorage redirects root → /garden and loads current plant (seed stage).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py auth_apple: correctly uses PyJWKClient against Apple JWKS with RS256 + audience list + issuer check; on jwt.PyJWTError raises 401 with prefix 'Invalid Apple identity token' — matches spec.",
+    "server.py startup migration correctly drops legacy unique email_1 index if not sparse before recreating it as sparse; apple_sub is unique+sparse — allows Apple users without email and prevents duplicate apple_sub.",
+    "Email→apple linking logic in auth_apple looks up by apple_sub first, then falls back to email lookup and back-fills apple_sub — matches the 'same user across Google+Apple by email' requirement.",
+    "Apple only-on-first-signin fields are respected: existing email/name are never overwritten with nulls; new values only set when the stored field is missing.",
+    "AuthContext.signInWithApple guards Platform.OS !== 'ios' with a throw; login.tsx renders AppleAuthenticationButton only when Platform.OS === 'ios' && appleAvailable → web import of expo-apple-authentication remains a no-op shim.",
+    "APPLE_AUDIENCES sourced from env at every request (no module-level cache) — supports runtime rotation."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (26/26)", "frontend": "100% (login-screen render, apple-not-on-web, no native module errors, session bypass → garden load)"},
+  "seed_data_creation": "Ephemeral: pytest fixture creates user_TEST_* + user_sessions per module and tears down. UI test seeded user_TEST_UI_ebf4cad2 + TEST_UI_tok_* — deleted after run (users:1, sessions:1, plants:1).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Apple Sign-In endpoint /api/auth/apple, indexes migration, and web-side gating are locked. For future Apple-related tests: cannot exercise a real Apple flow headless — only cover invalid-token / missing-field / env-config paths. To auth-bypass for UI, seed users + user_sessions in mongodb://localhost:27017/test_database with tz-aware UTC datetimes, then window.localStorage.setItem('sprout_session_token', <token>) on /login before navigating to /.",
+  "rca_of_issue": "N/A — no bugs found."
+}

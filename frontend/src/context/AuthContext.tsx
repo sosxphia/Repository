@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { Platform } from "react-native";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
+import * as AppleAuthentication from "expo-apple-authentication";
 import { apiFetch, clearToken, saveToken } from "@/src/lib/api";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -19,7 +20,9 @@ type User = {
 type AuthState = {
   user: User | null;
   loading: boolean;
+  appleAvailable: boolean;
   signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -36,6 +39,7 @@ function extractSessionId(url: string): string | null {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [appleAvailable, setAppleAvailable] = useState(false);
   const processed = useRef<Set<string>>(new Set());
   const capturedUrlRef = useRef<string | null>(null);
 
@@ -67,6 +71,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let sub: any;
     (async () => {
+      // Detect Apple Sign-In availability (iOS native only)
+      try {
+        if (Platform.OS === "ios") {
+          const ok = await AppleAuthentication.isAvailableAsync();
+          setAppleAvailable(ok);
+        }
+      } catch {}
+
       // Web: parse URL for session_id first
       if (Platform.OS === "web" && typeof window !== "undefined") {
         const full = window.location.href;
@@ -120,6 +132,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [exchangeSessionId]);
 
+  const signInWithApple = useCallback(async () => {
+    if (Platform.OS !== "ios") throw new Error("Apple Sign-In is iOS only");
+    const credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+    });
+    if (!credential.identityToken) throw new Error("No identity token from Apple");
+    const composedName = credential.fullName
+      ? [credential.fullName.givenName, credential.fullName.familyName].filter(Boolean).join(" ").trim() || undefined
+      : undefined;
+    const data = await apiFetch("/auth/apple", {
+      method: "POST",
+      body: JSON.stringify({
+        identity_token: credential.identityToken,
+        name: composedName || null,
+        email: credential.email || null,
+      }),
+    });
+    await saveToken(data.session_token);
+    setUser(data.user);
+  }, []);
+
   const signOut = useCallback(async () => {
     try { await apiFetch("/auth/logout", { method: "POST" }); } catch {}
     await clearToken();
@@ -131,7 +167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [checkExisting]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOut, refresh }}>
+    <AuthContext.Provider value={{ user, loading, appleAvailable, signInWithGoogle, signInWithApple, signOut, refresh }}>
       {children}
     </AuthContext.Provider>
   );

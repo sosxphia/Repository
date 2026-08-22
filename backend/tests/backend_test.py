@@ -76,6 +76,90 @@ class TestHealthAndAuth:
         assert "_id" not in data
 
 
+# ---------- Apple Sign-In endpoint ----------
+class TestAppleAuth:
+    def test_apple_invalid_token_returns_401(self):
+        r = requests.post(f"{API}/auth/apple", json={"identity_token": "garbage.jwt.token"})
+        assert r.status_code == 401, f"expected 401, got {r.status_code} body={r.text}"
+        detail = r.json().get("detail", "")
+        assert detail.startswith("Invalid Apple identity token"), f"unexpected detail={detail!r}"
+
+    def test_apple_random_string_returns_401(self):
+        r = requests.post(f"{API}/auth/apple", json={"identity_token": "totally-not-a-jwt"})
+        assert r.status_code == 401
+        assert r.json().get("detail", "").startswith("Invalid Apple identity token")
+
+    def test_apple_missing_identity_token_returns_422(self):
+        r = requests.post(f"{API}/auth/apple", json={})
+        assert r.status_code == 422, f"expected 422, got {r.status_code}"
+
+    def test_apple_empty_body_returns_422(self):
+        r = requests.post(f"{API}/auth/apple",
+                          data="",
+                          headers={"Content-Type": "application/json"})
+        assert r.status_code == 422
+
+    def test_apple_audiences_env_configured(self):
+        # Read the backend .env directly to confirm required audiences configured
+        env_path = "/app/backend/.env"
+        assert os.path.exists(env_path), ".env file missing"
+        with open(env_path, "r") as f:
+            content = f.read()
+        assert "APPLE_AUDIENCES=" in content, "APPLE_AUDIENCES key missing"
+        assert "com.emergent.growbygoals.off8vr" in content
+        assert "host.exp.Exponent" in content
+
+
+# ---------- Mongo indexes migration ----------
+class TestUserIndexes:
+    def test_email_index_is_sparse_and_not_unique(self, db):
+        info = db.users.index_information()
+        assert "email_1" in info, f"email_1 missing. indexes={list(info.keys())}"
+        email_idx = info["email_1"]
+        assert email_idx.get("sparse") is True, f"email_1 not sparse: {email_idx}"
+        assert not email_idx.get("unique", False), f"email_1 still unique: {email_idx}"
+
+    def test_apple_sub_index_unique_and_sparse(self, db):
+        info = db.users.index_information()
+        assert "apple_sub_1" in info, f"apple_sub_1 missing. indexes={list(info.keys())}"
+        idx = info["apple_sub_1"]
+        assert idx.get("unique") is True, f"apple_sub_1 not unique: {idx}"
+        assert idx.get("sparse") is True, f"apple_sub_1 not sparse: {idx}"
+
+    def test_user_id_unique_index(self, db):
+        info = db.users.index_information()
+        assert "user_id_1" in info
+        assert info["user_id_1"].get("unique") is True
+
+
+# ---------- Regression: authed endpoints with seeded Bearer token ----------
+class TestProtectedRegression:
+    def test_daily_quest(self, seeded_user):
+        r = requests.get(f"{API}/daily-quest", headers=auth_headers(seeded_user))
+        assert r.status_code == 200
+        q = r.json()
+        for k in ("quest_id", "date", "title", "xp_reward", "completed"):
+            assert k in q
+
+    def test_weekly_recap(self, seeded_user):
+        r = requests.get(f"{API}/weekly-recap", headers=auth_headers(seeded_user))
+        assert r.status_code == 200
+        body = r.json()
+        for k in ("week_start", "week_end", "goals_completed", "daily_quests_completed",
+                  "plants_bloomed", "plants_grown", "focus_minutes", "focus_sessions", "current_streak"):
+            assert k in body
+
+    def test_patch_plant_note(self, seeded_user):
+        cur = requests.get(f"{API}/plants/current", headers=auth_headers(seeded_user)).json()
+        r = requests.patch(
+            f"{API}/plants/{cur['plant_id']}",
+            json={"note": "TEST_note_from_regression"},
+            headers=auth_headers(seeded_user),
+        )
+        assert r.status_code == 200
+        assert r.json().get("note") == "TEST_note_from_regression"
+
+
 # ---------- Plants ----------
 class TestPlants:
     def test_current_auto_creates(self, seeded_user):

@@ -1,18 +1,28 @@
 import { useState } from "react";
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import * as AppleAuthentication from "expo-apple-authentication";
 import { useAuth } from "@/src/context/AuthContext";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
 export default function Login() {
-  const { signInWithGoogle } = useAuth();
-  const [busy, setBusy] = useState(false);
+  const { signInWithGoogle, signInWithApple, appleAvailable } = useAuth();
+  const [busy, setBusy] = useState<null | "google" | "apple">(null);
 
   const handleGoogle = async () => {
-    setBusy(true);
-    try { await signInWithGoogle(); } finally { setBusy(false); }
+    setBusy("google");
+    try { await signInWithGoogle(); } finally { setBusy(null); }
+  };
+
+  const handleApple = async () => {
+    setBusy("apple");
+    try { await signInWithApple(); }
+    catch (e: any) {
+      // Apple SDK throws with .code === 'ERR_REQUEST_CANCELED' when user backs out
+      if (e?.code !== "ERR_REQUEST_CANCELED") console.log("apple err", e);
+    } finally { setBusy(null); }
   };
 
   return (
@@ -45,11 +55,11 @@ export default function Login() {
 
         <Pressable
           onPress={handleGoogle}
-          disabled={busy}
+          disabled={busy !== null}
           style={({ pressed }) => [styles.googleBtn, pressed && { transform: [{ scale: 0.97 }] }]}
           testID="login-google-button"
         >
-          {busy ? (
+          {busy === "google" ? (
             <ActivityIndicator color={colors.onBrandPrimary} />
           ) : (
             <>
@@ -58,6 +68,21 @@ export default function Login() {
             </>
           )}
         </Pressable>
+
+        {Platform.OS === "ios" && appleAvailable && (
+          <View style={styles.appleWrap} testID="login-apple-wrap">
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+              cornerRadius={999}
+              style={styles.appleBtn}
+              onPress={handleApple}
+            />
+            {busy === "apple" && (
+              <View style={styles.appleBusy}><ActivityIndicator color="#FFF" /></View>
+            )}
+          </View>
+        )}
 
         <Text style={styles.hint}>Sign in to sync your garden across devices 🌿</Text>
       </SafeAreaView>
@@ -97,5 +122,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
   },
   googleText: { color: colors.onBrandPrimary, fontSize: 17, fontWeight: "700" },
+  appleWrap: { marginTop: spacing.md, position: "relative" },
+  appleBtn: { width: "100%", height: 56 },
+  appleBusy: {
+    ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center",
+  },
   hint: { textAlign: "center", fontSize: 13, color: colors.onSurfaceMuted, marginTop: spacing.md },
 });
