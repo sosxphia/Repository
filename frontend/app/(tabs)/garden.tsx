@@ -10,9 +10,12 @@ import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { apiFetch } from "@/src/lib/api";
 import { colors, spacing, radius } from "@/src/lib/theme";
-import { STAGE_LABEL, Stage, Species, SPECIES_LIST, emojiFor } from "@/src/lib/plant";
+import { STAGE_LABEL, Stage, emojiFor } from "@/src/lib/plant";
 import { BloomCelebration } from "@/src/components/BloomCelebration";
+import { TreeView } from "@/src/components/TreeView";
 import { storage } from "@/src/utils/storage";
+
+type Goal = { goal_id: string; title: string; completed: boolean; completed_at?: string | null };
 
 type Plant = {
   plant_id: string;
@@ -28,29 +31,31 @@ type Plant = {
 
 export default function Garden() {
   const router = useRouter();
-  const [plants, setPlants] = useState<Plant[]>([]);
   const [current, setCurrent] = useState<Plant | null>(null);
+  const [completedGoals, setCompletedGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetName, setResetName] = useState("");
-  const [resetSpecies, setResetSpecies] = useState<Species>("succulent");
   const [resetting, setResetting] = useState(false);
   const [bloomVisible, setBloomVisible] = useState(false);
   const [bloomPlant, setBloomPlant] = useState<Plant | null>(null);
-  const [journalPlant, setJournalPlant] = useState<Plant | null>(null);
+  const [journalOpen, setJournalOpen] = useState(false);
   const [journalNote, setJournalNote] = useState("");
   const [journalSaving, setJournalSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [cur, all] = await Promise.all([
+      const [cur, goals] = await Promise.all([
         apiFetch("/plants/current"),
-        apiFetch("/plants"),
+        apiFetch("/goals"),
       ]);
       setCurrent(cur);
-      setPlants(all);
-      // Bloom celebration: show once per plant when it hits bloom
+      // Sort completed goals by completed_at ascending so branches appear in the order they were done
+      const done = (goals as Goal[])
+        .filter((g) => g.completed)
+        .sort((a, b) => (a.completed_at || "").localeCompare(b.completed_at || ""));
+      setCompletedGoals(done);
       if (cur && cur.stage === "bloom") {
         const seen = (await storage.getItem<string>("bloom_seen", "")) || "";
         const list = seen.split(",").filter(Boolean);
@@ -73,32 +78,9 @@ export default function Garden() {
 
   const onRefresh = () => { setRefreshing(true); load(); };
 
-  const openJournal = (p: Plant) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setJournalPlant(p);
-    setJournalNote(p.note || "");
-  };
-
-  const saveJournal = async () => {
-    if (!journalPlant) return;
-    setJournalSaving(true);
-    try {
-      await apiFetch(`/plants/${journalPlant.plant_id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ note: journalNote.trim() }),
-      });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setJournalPlant(null);
-      load();
-    } finally {
-      setJournalSaving(false);
-    }
-  };
-
   const openReset = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setResetName("");
-    setResetSpecies("succulent");
     setResetOpen(true);
   };
 
@@ -109,12 +91,35 @@ export default function Garden() {
     try {
       await apiFetch(`/plants/${current.plant_id}/reset`, {
         method: "POST",
-        body: JSON.stringify({ name: resetName.trim() || "New Plant", species: resetSpecies }),
+        body: JSON.stringify({ name: resetName.trim() || "My Tree", species: "tree" }),
       });
       setResetOpen(false);
       load();
     } finally {
       setResetting(false);
+    }
+  };
+
+  const openJournal = () => {
+    if (!current) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setJournalNote(current.note || "");
+    setJournalOpen(true);
+  };
+
+  const saveJournal = async () => {
+    if (!current) return;
+    setJournalSaving(true);
+    try {
+      await apiFetch(`/plants/${current.plant_id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ note: journalNote.trim() }),
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setJournalOpen(false);
+      load();
+    } finally {
+      setJournalSaving(false);
     }
   };
 
@@ -138,15 +143,15 @@ export default function Garden() {
       >
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.hi}>My Garden 🌷</Text>
-            <Text style={styles.subhi}>Keep watering with focus & goals</Text>
+            <Text style={styles.hi}>My Tree 🌳</Text>
+            <Text style={styles.subhi}>Water it with focus & goals</Text>
           </View>
           <Pressable onPress={openReset} style={styles.resetBtn} testID="reset-plant-button">
             <Ionicons name="refresh" size={18} color={colors.onBrandPrimary} />
           </Pressable>
         </View>
 
-        {/* Hero plant card */}
+        {/* Hero tree card */}
         <LinearGradient
           colors={["#FEF3C7", "#DCFCE7"]}
           start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
@@ -155,9 +160,9 @@ export default function Garden() {
           <View style={styles.stageBadge}>
             <Text style={styles.stageBadgeText}>{STAGE_LABEL[current?.stage || "seed"]}</Text>
           </View>
-          <Text style={styles.heroEmoji} testID="current-plant-emoji">{emojiFor(current?.stage || "seed", current?.species)}</Text>
-          <Text style={styles.heroName}>{current?.name}</Text>
-          <Text style={styles.xpText}>{current?.xp} XP</Text>
+          <TreeView stage={current?.stage || "seed"} xp={current?.xp || 0} goals={completedGoals} size={240} />
+          <Text style={styles.heroName} testID="current-plant-emoji">{current?.name}</Text>
+          <Text style={styles.xpText}>{current?.xp} XP · {completedGoals.length} {completedGoals.length === 1 ? "branch" : "branches"} 🌿</Text>
 
           <View style={styles.progressWrap}>
             <View style={styles.progressBg}>
@@ -168,6 +173,19 @@ export default function Garden() {
             </Text>
           </View>
         </LinearGradient>
+
+        {/* Memory note editor */}
+        <Pressable onPress={openJournal} style={styles.noteCard} testID="tree-memory-card">
+          <View style={styles.noteHeader}>
+            <Text style={styles.noteTitle}>📝 Memory</Text>
+            <Ionicons name="pencil" size={16} color={colors.brandPrimary} />
+          </View>
+          {current?.note ? (
+            <Text style={styles.noteText} numberOfLines={3}>"{current.note}"</Text>
+          ) : (
+            <Text style={styles.notePlaceholder}>Add a little note about what you're working on…</Text>
+          )}
+        </Pressable>
 
         {/* Action tiles */}
         <View style={styles.actionRow}>
@@ -182,32 +200,9 @@ export default function Garden() {
             <Text style={[styles.actionSub, { color: "#DCFCE7" }]}>+10 XP each</Text>
           </Pressable>
         </View>
-
-        {/* Garden collection */}
-        <Text style={styles.sectionTitle}>My Plants ({plants.length})</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.md, paddingRight: spacing.lg }}>
-          {plants.map((p) => (
-            <Pressable
-              key={p.plant_id}
-              onPress={() => openJournal(p)}
-              style={[styles.plantChip, p.is_current && styles.plantChipActive]}
-              testID={`plant-chip-${p.plant_id}`}
-            >
-              <Text style={styles.chipEmoji}>{emojiFor(p.stage, p.species)}</Text>
-              <Text style={styles.chipName} numberOfLines={1}>{p.name}</Text>
-              <Text style={styles.chipStage}>{STAGE_LABEL[p.stage]}</Text>
-              <Text style={styles.chipXp}>{p.xp} XP</Text>
-              {p.bloomed_at && <Ionicons name="star" size={14} color={colors.brandPrimary} style={{ marginTop: 4 }} />}
-              {p.note ? (
-                <Text style={styles.chipNote} numberOfLines={2}>"{p.note}"</Text>
-              ) : (
-                <Text style={styles.chipNoteHint}>+ add memory</Text>
-              )}
-            </Pressable>
-          ))}
-        </ScrollView>
       </ScrollView>
 
+      {/* Reset modal — new tree */}
       <Modal transparent visible={resetOpen} animationType="slide" onRequestClose={() => setResetOpen(false)}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -216,12 +211,12 @@ export default function Garden() {
           <Pressable style={styles.backdrop} onPress={() => setResetOpen(false)} />
           <View style={styles.sheet}>
             <View style={styles.grabber} />
-            <Text style={styles.sheetTitle}>Plant a new sprout 🌱</Text>
-            <Text style={styles.sheetSub}>Your current plant will move to your garden. Give the new one a cute name!</Text>
+            <Text style={styles.sheetTitle}>Plant a new tree 🌱</Text>
+            <Text style={styles.sheetSub}>Your current tree will be replaced. Give the new one a cute name!</Text>
             <TextInput
               value={resetName}
               onChangeText={setResetName}
-              placeholder="e.g. Basil, Sunny, Little Leaf..."
+              placeholder="e.g. Oakley, Willow, Little Sprout…"
               placeholderTextColor={colors.onSurfaceMuted}
               style={styles.input}
               autoFocus
@@ -230,21 +225,6 @@ export default function Garden() {
               maxLength={30}
               testID="new-plant-name-input"
             />
-
-            <Text style={styles.speciesLabel}>Pick a species</Text>
-            <View style={styles.speciesRow}>
-              {SPECIES_LIST.map((s) => (
-                <Pressable
-                  key={s.key}
-                  onPress={() => { Haptics.selectionAsync(); setResetSpecies(s.key); }}
-                  style={[styles.speciesPill, resetSpecies === s.key && styles.speciesPillActive]}
-                  testID={`species-${s.key}`}
-                >
-                  <Text style={styles.speciesEmoji}>{s.bloom}</Text>
-                  <Text style={[styles.speciesText, resetSpecies === s.key && styles.speciesTextActive]}>{s.label}</Text>
-                </Pressable>
-              ))}
-            </View>
             <View style={styles.sheetRow}>
               <Pressable
                 onPress={() => setResetOpen(false)}
@@ -272,26 +252,18 @@ export default function Garden() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <BloomCelebration
-        visible={bloomVisible}
-        plantId={bloomPlant?.plant_id}
-        plantName={bloomPlant?.name || "your plant"}
-        species={bloomPlant?.species}
-        xp={bloomPlant?.xp || 350}
-        onClose={() => { setBloomVisible(false); load(); }}
-      />
-
-      <Modal transparent visible={!!journalPlant} animationType="slide" onRequestClose={() => setJournalPlant(null)}>
+      {/* Memory journal modal */}
+      <Modal transparent visible={journalOpen} animationType="slide" onRequestClose={() => setJournalOpen(false)}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.modalWrap}
         >
-          <Pressable style={styles.backdrop} onPress={() => setJournalPlant(null)} />
+          <Pressable style={styles.backdrop} onPress={() => setJournalOpen(false)} />
           <View style={styles.sheet}>
             <View style={styles.grabber} />
-            <Text style={styles.journalEmoji}>{journalPlant ? emojiFor(journalPlant.stage, journalPlant.species) : ""}</Text>
-            <Text style={styles.sheetTitle}>{journalPlant?.name}'s memory</Text>
-            <Text style={styles.sheetSub}>What was going on when this plant grew? A little note to look back on 💌</Text>
+            <Text style={styles.journalEmoji}>{emojiFor(current?.stage || "seed")}</Text>
+            <Text style={styles.sheetTitle}>{current?.name}'s memory</Text>
+            <Text style={styles.sheetSub}>What was going on when this tree grew? A little note to look back on 💌</Text>
             <TextInput
               value={journalNote}
               onChangeText={setJournalNote}
@@ -305,7 +277,7 @@ export default function Garden() {
             />
             <View style={styles.sheetRow}>
               <Pressable
-                onPress={() => setJournalPlant(null)}
+                onPress={() => setJournalOpen(false)}
                 style={[styles.sheetBtn, { backgroundColor: colors.surfaceSecondary }]}
                 testID="journal-cancel-button"
               >
@@ -329,6 +301,15 @@ export default function Garden() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <BloomCelebration
+        visible={bloomVisible}
+        plantId={bloomPlant?.plant_id}
+        plantName={bloomPlant?.name || "your tree"}
+        species={bloomPlant?.species}
+        xp={bloomPlant?.xp || 350}
+        onClose={() => { setBloomVisible(false); load(); }}
+      />
     </SafeAreaView>
   );
 }
@@ -361,6 +342,14 @@ const styles = StyleSheet.create({
   progressBg: { height: 14, backgroundColor: "rgba(255,255,255,0.7)", borderRadius: radius.pill, overflow: "hidden", borderWidth: 1, borderColor: "#FDE68A" },
   progressFill: { height: "100%", backgroundColor: colors.brandSecondary, borderRadius: radius.pill },
   progressText: { fontSize: 11, color: colors.onSurfaceMuted, marginTop: 6, textAlign: "center", fontWeight: "600" },
+  noteCard: {
+    marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border,
+  },
+  noteHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
+  noteTitle: { fontSize: 14, fontWeight: "700", color: colors.onSurface },
+  noteText: { fontSize: 14, color: colors.onSurface, fontStyle: "italic", lineHeight: 20 },
+  notePlaceholder: { fontSize: 13, color: colors.onSurfaceMuted },
   actionRow: { flexDirection: "row", gap: spacing.md, marginTop: spacing.lg },
   actionTile: {
     flex: 1, paddingVertical: spacing.lg, paddingHorizontal: spacing.md,
@@ -370,22 +359,6 @@ const styles = StyleSheet.create({
   actionEmoji: { fontSize: 32 },
   actionText: { fontSize: 16, fontWeight: "800", color: colors.onBrandPrimary, marginTop: 4 },
   actionSub: { fontSize: 11, color: "#78350F", fontWeight: "600", marginTop: 2 },
-  sectionTitle: { fontSize: 18, fontWeight: "700", color: colors.onSurface, marginTop: spacing.xl, marginBottom: spacing.md },
-  plantChip: {
-    width: 140, backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg,
-    padding: spacing.md, alignItems: "center", borderWidth: 2, borderColor: "transparent",
-  },
-  plantChipActive: { borderColor: colors.brandPrimary, backgroundColor: colors.brandTertiary },
-  chipEmoji: { fontSize: 40 },
-  chipName: { fontSize: 13, fontWeight: "700", color: colors.onSurface, marginTop: 4 },
-  chipStage: { fontSize: 11, color: colors.onSurfaceMuted, marginTop: 2 },
-  chipXp: { fontSize: 12, fontWeight: "700", color: colors.brandSecondary, marginTop: 4 },
-  chipNote: {
-    fontSize: 10, color: colors.onSurfaceMuted, fontStyle: "italic",
-    marginTop: 6, textAlign: "center", lineHeight: 13,
-  },
-  chipNoteHint: { fontSize: 10, color: colors.brandPrimary, fontWeight: "700", marginTop: 6 },
-  journalEmoji: { fontSize: 56, alignSelf: "center", marginBottom: 4 },
   modalWrap: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
   sheet: {
@@ -405,16 +378,5 @@ const styles = StyleSheet.create({
     flex: 1, paddingVertical: 16, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
   },
   sheetBtnText: { fontSize: 15, fontWeight: "700" },
-  speciesLabel: { fontSize: 13, fontWeight: "700", color: colors.onSurface, marginTop: spacing.md, marginBottom: spacing.sm },
-  speciesRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  speciesPill: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: spacing.md, paddingVertical: 10,
-    borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary,
-    borderWidth: 2, borderColor: "transparent",
-  },
-  speciesPillActive: { backgroundColor: colors.brandTertiary, borderColor: colors.brandPrimary },
-  speciesEmoji: { fontSize: 20 },
-  speciesText: { fontSize: 13, fontWeight: "700", color: colors.onSurface },
-  speciesTextActive: { color: colors.onBrandTertiary },
+  journalEmoji: { fontSize: 56, alignSelf: "center", marginBottom: 4 },
 });

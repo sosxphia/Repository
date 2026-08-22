@@ -1,30 +1,22 @@
 export type Stage = "seed" | "sprout" | "sapling" | "bloom";
-export type Species = "succulent" | "flower" | "cactus" | "tree";
 
+// Kept as "bloom" internally for backend compatibility, but shown as "Fully Grown"
 export const STAGE_LABEL: Record<Stage, string> = {
   seed: "Seed",
   sprout: "Sprout",
   sapling: "Sapling",
-  bloom: "Bloom",
+  bloom: "Fully Grown",
 };
 
-type SpeciesInfo = { key: Species; label: string; sapling: string; bloom: string };
-
-export const SPECIES_LIST: SpeciesInfo[] = [
-  { key: "succulent", label: "Succulent", sapling: "🪴", bloom: "🌺" },
-  { key: "flower", label: "Flower", sapling: "🌷", bloom: "🌸" },
-  { key: "cactus", label: "Cactus", sapling: "🌵", bloom: "🌵" },
-  { key: "tree", label: "Tree", sapling: "🌿", bloom: "🌳" },
-];
-
-const SPECIES_MAP = Object.fromEntries(SPECIES_LIST.map((s) => [s.key, s])) as Record<Species, SpeciesInfo>;
-
-export function emojiFor(stage: Stage, species?: string): string {
-  if (stage === "seed") return "🌱";
-  if (stage === "sprout") return "🌿";
-  const info = SPECIES_MAP[(species as Species) || "succulent"] || SPECIES_MAP.succulent;
-  if (stage === "sapling") return info.sapling;
-  return info.bloom;
+// Single-tree model: emoji progresses through the tree life cycle.
+export function emojiFor(stage: Stage, _species?: string): string {
+  switch (stage) {
+    case "seed": return "🌱";
+    case "sprout": return "🌿";
+    case "sapling": return "🎋";
+    case "bloom":
+    default: return "🌳";
+  }
 }
 
 export function stageForXp(xp: number): Stage {
@@ -34,10 +26,10 @@ export function stageForXp(xp: number): Stage {
   return "bloom";
 }
 
-// Backwards-compat for anything still importing STAGE_EMOJI
+// Kept for backward compatibility of any imports elsewhere
 export const STAGE_EMOJI: Record<Stage, string> = {
   seed: "🌱",
   sprout: "🌿",
-  sapling: "🪴",
-  bloom: "🌺",
+  sapling: "🎋",
+  bloom: "🌳",
 };
