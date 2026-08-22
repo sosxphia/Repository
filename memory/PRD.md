@@ -52,3 +52,7 @@ Tactile / Playful (Personality 4) — cream #FFFCF6, sunshine yellow #F59E0B, em
 - Garden shows red warning banner (testID streak-risk-banner) when at_risk: message adapts to freeze count; CTAs "Focus now" + "Get a freeze" (→profile, only when 0 freezes).
 - Dead state: when plant.is_dead, garden shows grey memorial card ("X withered away…") + "Replant a new tree" button (testID replant-button → existing reset modal). TreeView isDead prop renders wilted grey DeadTree SVG (snapped top, drooping bare branches, empty bird hole, cracks, fallen leaves).
 - Verified: banner screenshot, dead tree screenshot, replant → fresh alive tree via /plants/{id}/reset.
+
+## Streak Calendar (June 2026)
+- GET /api/activity-calendar?year=&month= → {year, month, active_days[], streak_days}; active days aggregated from focus_sessions.created_at, goals.completed_at, daily_quests.completed_at (UTC days).
+- New component /app/frontend/src/components/StreakCalendar.tsx (testIDs: streak-calendar, calendar-prev, calendar-next): month grid, green dot = active day, outlined = today, next-month disabled at current month. Shown on Profile under "Streak Calendar 🔥" above the Streak Freeze card.

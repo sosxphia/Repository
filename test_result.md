@@ -112,3 +112,6 @@
 ## Freeze Reminder + Dead Tree Visual (June 2026)
 - GET /api/streak-status (auth) added; garden.tsx risk banner + dead memorial card + replant; TreeView DeadTree render.
 - Main agent verified via curl + screenshots: at_risk logic, banner render, dead tree render, replant creates alive tree. needs_retesting: false
+
+## Streak Calendar (June 2026)
+- GET /api/activity-calendar added + StreakCalendar component on profile. Main agent verified via curl (current + past month aggregation) and screenshots (active day highlight, prev-month nav, next disabled). needs_retesting: false

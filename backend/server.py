@@ -655,6 +655,43 @@ async def streak_status(authorization: Optional[str] = Header(None)):
         "streak_freezes": int(user.get("streak_freezes", 0)),
     }
 
+@api_router.get("/activity-calendar")
+async def activity_calendar(year: int = 0, month: int = 0, authorization: Optional[str] = Header(None)):
+    """Days of the given month (default: current) on which the user was active."""
+    user = await get_current_user(authorization)
+    now = now_utc()
+    y = year if 2000 <= year <= 2100 else now.year
+    m = month if 1 <= month <= 12 else now.month
+    start = datetime(y, m, 1, tzinfo=timezone.utc)
+    end = datetime(y + 1, 1, 1, tzinfo=timezone.utc) if m == 12 else datetime(y, m + 1, 1, tzinfo=timezone.utc)
+    uid = user["user_id"]
+    active: set = set()
+
+    def _day(dt):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.day
+
+    async for fs in db.focus_sessions.find(
+        {"user_id": uid, "created_at": {"$gte": start, "$lt": end}}, {"_id": 0, "created_at": 1}
+    ):
+        active.add(_day(fs["created_at"]))
+    async for g in db.goals.find(
+        {"user_id": uid, "completed": True, "completed_at": {"$gte": start, "$lt": end}}, {"_id": 0, "completed_at": 1}
+    ):
+        active.add(_day(g["completed_at"]))
+    async for q in db.daily_quests.find(
+        {"user_id": uid, "completed": True, "completed_at": {"$gte": start, "$lt": end}}, {"_id": 0, "completed_at": 1}
+    ):
+        if q.get("completed_at"):
+            active.add(_day(q["completed_at"]))
+    return {
+        "year": y,
+        "month": m,
+        "active_days": sorted(active),
+        "streak_days": user.get("streak_days", 0),
+    }
+
 # ---------- PayPal (Streak Freeze purchase) ----------
 PAYPAL_BASE = os.environ.get("PAYPAL_BASE_URL", "https://api-m.sandbox.paypal.com")
 STREAK_FREEZE_PRICE = "1.99"

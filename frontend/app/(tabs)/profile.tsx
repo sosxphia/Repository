@@ -9,6 +9,7 @@ import * as Haptics from "expo-haptics";
 import * as WebBrowser from "expo-web-browser";
 import { useAuth } from "@/src/context/AuthContext";
 import { apiFetch } from "@/src/lib/api";
+import { StreakCalendar } from "@/src/components/StreakCalendar";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
 type Stats = {
@@ -205,6 +206,9 @@ export default function Profile() {
                 <Text style={styles.statLabel}>bloomed</Text>
               </View>
             </View>
+
+            <Text style={styles.sectionTitle}>Streak Calendar 🔥</Text>
+            <StreakCalendar />
 
             {/* Streak Freeze shop */}
             <LinearGradient
