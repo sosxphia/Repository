@@ -119,3 +119,6 @@
 ## Tree Revive via PayPal (June 2026)
 - PAYPAL_PRODUCTS catalog, POST /api/paypal/orders {product}, revive grant on capture (exactly once, restores plant, refreshes last_activity_date). Frontend shared paypal.ts helper + revive button on garden memorial card.
 - Verified: curl (revive order, 400s), /app/backend/tests/test_revive_manual.py PASS, pytest tests/test_paypal.py 17/17 pass, screenshots of memorial + waiting states. needs_retesting: false
+
+## Push Notifications (June 2026)
+- Emergent managed push integrated per playbook. register-push returns mapped 500 with placeholder key (expected in preview). Kill path verified non-blocking with push failure. App loads on web (guards OK). All playbook self-verification symbols present. Cannot test delivery in preview — needs real build.

@@ -3,6 +3,8 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
+import asyncio
 import os
 import logging
 import uuid
@@ -299,7 +301,11 @@ async def _check_and_kill_stale_plant(user):
         return
     # Not enough freezes: kill current tree, reset streak
     consumed = freezes
-    await db.plants.update_many(
+    plant = await db.plants.find_one(
+        {"user_id": user["user_id"], "is_current": True, "is_dead": {"$ne": True}},
+        {"_id": 0, "name": 1},
+    )
+    res = await db.plants.update_many(
         {"user_id": user["user_id"], "is_current": True, "is_dead": {"$ne": True}},
         {"$set": {"is_dead": True, "died_at": now_utc()}},
     )
@@ -307,6 +313,20 @@ async def _check_and_kill_stale_plant(user):
         {"user_id": user["user_id"]},
         {"$set": {"streak_days": 0, "streak_freezes": max(0, freezes - consumed)}},
     )
+    if res.modified_count > 0:
+        try:
+            name = plant["name"] if plant else "Your tree"
+            await send_push(
+                recipients=[user["user_id"]],
+                data={
+                    "title": "Your tree died 💔",
+                    "message": f"{name} couldn't survive the missed days. Revive it or replant a new seed in the app.",
+                    "action_url": "/(tabs)/garden",
+                },
+                idempotency_key=f"tree-died:{user['user_id']}:{now_utc().date().isoformat()}",
+            )
+        except Exception as e:
+            logger.warning(f"Push failed (non-blocking): {e}")
 
 @api_router.get("/plants")
 async def list_plants(authorization: Optional[str] = Header(None)):
@@ -886,6 +906,88 @@ async def paypal_order_status(order_id: str, authorization: Optional[str] = Head
     u = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     return {"status": payment["status"], "streak_freezes": int(u.get("streak_freezes", 0))}
 
+# ---------- Emergent Managed Push Notifications ----------
+PUSH_BASE_URL = "https://integrations.emergentagent.com"
+push_http = httpx.AsyncClient(
+    base_url=PUSH_BASE_URL,
+    headers={"X-Push-Key": os.environ.get("EMERGENT_PUSH_KEY", "placeholder")},
+    timeout=10.0,
+)
+
+class RegisterPushBody(BaseModel):
+    user_id: str
+    platform: str  # "android" | "ios"
+    device_token: str
+
+@api_router.post("/register-push", status_code=201)
+async def register_push(body: RegisterPushBody):
+    resp = await push_http.post("/api/v1/push/users/register", json=body.model_dump())
+    if resp.status_code == 401:
+        raise HTTPException(status_code=500, detail="EMERGENT_PUSH_KEY missing or invalid")
+    if resp.status_code >= 500:
+        raise HTTPException(status_code=502, detail="Push provider unavailable")
+    resp.raise_for_status()
+    return {"status": "registered"}
+
+async def send_push(recipients: List[str], data: dict, idempotency_key: Optional[str] = None) -> None:
+    if not recipients:
+        return
+    if "title" not in data or "message" not in data:
+        raise ValueError("data must include title and message")
+    payload: dict = {"recipients": recipients, "data": data}
+    if idempotency_key:
+        payload["$idempotency_key"] = idempotency_key
+    resp = await push_http.post("/api/v1/push/trigger", json=payload)
+    if resp.status_code == 401:
+        raise HTTPException(status_code=500, detail="EMERGENT_PUSH_KEY missing or invalid")
+    if resp.status_code >= 500:
+        raise HTTPException(status_code=502, detail="Push provider unavailable")
+    resp.raise_for_status()
+
+async def _push_sweeper():
+    """Hourly: proactively kill lapsed trees (with 'tree died' push) and send the
+    evening streak-rescue reminder to users who did nothing today."""
+    while True:
+        try:
+            now = now_utc()
+            today = now.date()
+            today_start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+            yesterday_start = today_start - timedelta(days=1)
+            # 1) Users idle 2+ days → run the kill/freeze check (sends 'tree died' push on kill)
+            async for u in db.users.find({"last_activity_date": {"$lt": yesterday_start}}, {"_id": 0}):
+                try:
+                    await _check_and_kill_stale_plant(u)
+                except Exception as e:
+                    logger.warning(f"sweeper kill check failed: {e}")
+            # 2) Evening reminder (~17:00 UTC) for users whose streak breaks at midnight
+            if now.hour == 17:
+                cursor = db.users.find(
+                    {"streak_days": {"$gt": 0},
+                     "last_activity_date": {"$gte": yesterday_start, "$lt": today_start}},
+                    {"_id": 0},
+                )
+                async for u in cursor:
+                    key = f"streak-risk:{u['user_id']}:{today.isoformat()}"
+                    try:
+                        await db.push_log.insert_one({"key": key, "created_at": now_utc()})
+                    except DuplicateKeyError:
+                        continue
+                    try:
+                        await send_push(
+                            recipients=[u["user_id"]],
+                            data={
+                                "title": "🔥 Your streak breaks at midnight!",
+                                "message": f"Keep your {u.get('streak_days', 0)}-day streak alive — a quick goal or focus session saves your tree. 🌳",
+                                "action_url": "/(tabs)/garden",
+                            },
+                            idempotency_key=key,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Push failed (non-blocking): {e}")
+        except Exception as e:
+            logger.warning(f"push sweeper error: {e}")
+        await asyncio.sleep(3600)
+
 @api_router.get("/")
 async def root():
     return {"message": "SproutGoals API"}
@@ -923,6 +1025,8 @@ async def startup():
     await db.daily_quests.create_index("quest_id", unique=True)
     await db.focus_sessions.create_index("user_id")
     await db.payments.create_index("order_id", unique=True)
+    await db.push_log.create_index("key", unique=True)
+    asyncio.create_task(_push_sweeper())
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
