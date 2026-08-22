@@ -1,0 +1,147 @@
+{
+  "app_name": "SproutGoals",
+  "personality": "4 Tactile / Playful LIGHT",
+  "personality_one_liner": "A cozy, gamified virtual garden where real-life focus and goals nourish cutesy digital plants.",
+  "color": {
+    "surface": { "light": "#FFFCF6", "dark": "#18181B" },
+    "onSurface": { "light": "#1F2937", "dark": "#FAFAFA" },
+    "surfaceSecondary": { "light": "#F4EFE6", "dark": "#27272A" },
+    "onSurfaceSecondary": { "light": "#1F2937", "dark": "#F4F4F5" },
+    "surfaceTertiary": { "light": "#EAE3D6", "dark": "#3F3F46" },
+    "onSurfaceTertiary": { "light": "#374151", "dark": "#E4E4E7" },
+    "surfaceInverse": { "light": "#2D3748", "dark": "#FFFCF6" },
+    "onSurfaceInverse": { "light": "#FFFCF6", "dark": "#1F2937" },
+    "brand": { "light": "#FDE047", "dark": "#FDE047" },
+    "brandPrimary": { "light": "#F59E0B", "dark": "#F59E0B" },
+    "onBrandPrimary": { "light": "#422006", "dark": "#422006" },
+    "brandSecondary": { "light": "#10B981", "dark": "#34D399" },
+    "onBrandSecondary": { "light": "#FFFFFF", "dark": "#022C22" },
+    "brandTertiary": { "light": "#FEF3C7", "dark": "#78350F" },
+    "onBrandTertiary": { "light": "#B45309", "dark": "#FDE68A" },
+    "success": { "light": "#059669", "dark": "#34D399" },
+    "onSuccess": { "light": "#FFFFFF", "dark": "#022C22" },
+    "warning": { "light": "#F59E0B", "dark": "#FBBF24" },
+    "onWarning": { "light": "#451A03", "dark": "#451A03" },
+    "error": { "light": "#DC2626", "dark": "#F87171" },
+    "onError": { "light": "#FFFFFF", "dark": "#450A0A" },
+    "info": { "light": "#14B8A6", "dark": "#5EEAD4" },
+    "onInfo": { "light": "#FFFFFF", "dark": "#042F2E" },
+    "border": { "light": "#E2E8F0", "dark": "#3F3F46" },
+    "borderStrong": { "light": "#CBD5E1", "dark": "#52525B" },
+    "divider": { "light": "#EDF2F7", "dark": "#27272A" }
+  },
+  "typography": {
+    "displayFontFamily": "Fredoka",
+    "textFontFamily": "Nunito",
+    "scale": { "sm": 12, "base": 14, "lg": 16, "xl": 20, "2xl": 24 }
+  },
+  "spacing": { 
+    "rule": "Generous tactile spacing. Chunky cards with ample padding. Elements feel touchable, soft, and bouncy.", 
+    "xs": 4, 
+    "sm": 8, 
+    "md": 12, 
+    "lg": 16, 
+    "xl": 24, 
+    "2xl": 32, 
+    "3xl": 48 
+  },
+  "radius_tokens": { "sm": 6, "md": 12, "lg": 20, "pill": 999 },
+  "shadow_tier": "2",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": ["Bottom tab bar", "Sticky headers over scrolling content", "FAB backdrops", "Overlays on plant stage hero cards"],
+    "dont's": ["List rows", "Form inputs", "Dense data screens"]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "haptics": {
+    "events": {
+      "tab_press": "light",
+      "task_complete": "success",
+      "timer_start": "medium",
+      "timer_complete": "success",
+      "plant_level_up": "heavy",
+      "add_goal_press": "light"
+    }
+  },
+  "screens": [
+    {
+      "name": "Garden",
+      "purpose": "Showcase the current growing plant and the user's garden collection with an XP progress bar.",
+      "states": {
+        "loading": "Centered bouncing sprout icon or spinner",
+        "empty": "Illustration of an empty pot with 'Plant your first seed by setting a goal!' and a primary CTA 'Plant Seed'",
+        "error": "Message 'Oh no, the garden is cloudy' with a retry button"
+      },
+      "layout": "Top: Fixed header with current level and XP bar. Center: A large, chunky hero card with glassmorphism overlay showcasing the current plant stage image (using hero_succulent or sprout_stage). Below: Horizontal scroll of 'My Garden' showing previous fully-grown plants as smaller cards. Bottom: Sticky primary CTA 'Water Plant' (navigates to Goals) above the bottom tab bar."
+    },
+    {
+      "name": "Timer",
+      "purpose": "Pomodoro-style focus timer that feeds the plant.",
+      "states": {
+        "loading": "Spinner",
+        "empty": "N/A - Always shows timer setup",
+        "error": "Retry loading timer settings"
+      },
+      "layout": "Upper half: Large chunky circular timer using brandSecondary (green) for progress. Center of Timer: Cute sleeping or waiting plant image. Lower half: Session duration slider with large pill thumb. Bottom: Sticky 'Start Focusing' pill button."
+    },
+    {
+      "name": "Goals",
+      "purpose": "Task checklist where completions earn XP and water for the plant.",
+      "states": {
+        "loading": "Skeleton list items with rounded pill shapes",
+        "empty": "Illustration of an empty garden with 'No tasks today! Rest or add a new goal.' and an 'Add Goal' CTA",
+        "error": "Error fetching tasks with a retry button"
+      },
+      "layout": "List of 'Today's Tasks'. Each row is a chunky surfaceSecondary card with a large left-aligned checkbox (pill shape). Top right: Filter/Sort icons. Floating Action Button (FAB) at bottom right for adding tasks."
+    },
+    {
+      "name": "Profile",
+      "purpose": "User stats, streak tracking, Google login, and unlocked badges.",
+      "states": {
+        "loading": "Skeleton profile header and grid",
+        "empty": "Prompt to 'Sign in with Google to save your garden'",
+        "error": "Failed to load profile, retry button"
+      },
+      "layout": "Top: Profile header with Google avatar and Name. Middle: A 2-column grid of stats ('Current Streak', 'Total Focus Time') using surfaceSecondary cards. Bottom: A grid of unlocked colorful badges/achievements."
+    }
+  ],
+  "images": {
+    "hero_succulent": {
+      "url": "https://images.unsplash.com/photo-1572186192734-e82b57dc4435?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTN8MHwxfHNlYXJjaHwxfHxjdXRlJTIwcG90dGVkJTIwcGxhbnR8ZW58MHx8fHwxNzg3MzgyNjQyfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Cute potted succulent with a pink base representing a fully grown plant"
+    },
+    "sprout_stage": {
+      "url": "https://images.pexels.com/photos/401213/pexels-photo-401213.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Small green sprout emerging from soil representing an early plant stage"
+    },
+    "empty_garden": {
+      "url": "https://images.pexels.com/photos/15375973/pexels-photo-15375973.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Empty garden pot with whimsical signs waiting for a seed"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the Tactile/Playful (Personality 4) rules: chunky cards, rounded pill shapes (radius lg to pill), and a soft, friendly aesthetic.",
+    "Use Phosphor icons with filled variants for active states and outlined for inactive.",
+    "Use Fredoka (Display) and Nunito (Body). Ensure heading weights are capped at 500 max.",
+    "Ensure the Pomodoro Timer screen uses a large, touchable circular layout, avoiding thin, clinical lines. Make it feel bouncy and gamified.",
+    "Do NOT use any shades of indigo, violet, purple, navy, or sky blue. The color palette centers around warm creams, sunshine yellow (brandPrimary), and emerald green (brandSecondary).",
+    "Implement spring animations (overshoot) for button presses (scale 0.93) to reinforce the tactile, gamified feel.",
+    "Whenever displaying plant imagery with text overlaid, enforce the gradient-to-dark scrim pattern (top to bottom fade) to guarantee text contrast.",
+    "The Goals screen should use chunky list rows with oversized tap targets (min 56pt) for checkboxes.",
+    "Wire haptics to all major interactions using the provided haptics block map.",
+    "Avoid dense data grids; prioritize whitespace and generous margins (md/lg)."
+  ]
+}
