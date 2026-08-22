@@ -63,6 +63,8 @@ type Props = {
   stage: Stage;
   xp: number;
   branches: number;
+  /** Days since the tree was planted — trunk thickens every 10 days, capped at day 100 */
+  ageDays?: number;
   width?: number;
   season?: Season;
 };
@@ -229,6 +231,89 @@ function BirdHole({
   );
 }
 
+// Detailed stump — root flares, bark ridges, cracks, moss, grass tufts and a mushroom
+function StumpDetail({
+  cx, groundY, baseW, palette,
+}: {
+  cx: number; groundY: number; baseW: number; palette: Palette;
+}) {
+  const h = baseW / 2;
+  return (
+    <G>
+      {/* Soft shadow under the flare */}
+      <Ellipse cx={cx} cy={groundY + 10} rx={h + 58} ry={11} fill={palette.trunkDark} opacity={0.12} />
+      {/* Big root flares */}
+      <Path
+        d={`M ${cx - h + 6} ${groundY - 62}
+            Q ${cx - h - 6} ${groundY - 24}, ${cx - h - 44} ${groundY + 4}
+            L ${cx - h + 12} ${groundY + 8} Z`}
+        fill={palette.trunk}
+      />
+      <Path
+        d={`M ${cx + h - 6} ${groundY - 62}
+            Q ${cx + h + 6} ${groundY - 24}, ${cx + h + 44} ${groundY + 4}
+            L ${cx + h - 12} ${groundY + 8} Z`}
+        fill={palette.trunk}
+      />
+      {/* Secondary knuckle roots */}
+      <Path
+        d={`M ${cx - h - 14} ${groundY - 12}
+            Q ${cx - h - 40} ${groundY - 4}, ${cx - h - 62} ${groundY + 8}
+            L ${cx - h - 10} ${groundY + 9} Z`}
+        fill={palette.trunkDark}
+      />
+      <Path
+        d={`M ${cx + h + 14} ${groundY - 12}
+            Q ${cx + h + 40} ${groundY - 4}, ${cx + h + 62} ${groundY + 8}
+            L ${cx + h + 10} ${groundY + 9} Z`}
+        fill={palette.trunkDark}
+      />
+      {/* Highlights on flares */}
+      <Path
+        d={`M ${cx + h - 2} ${groundY - 48} Q ${cx + h + 4} ${groundY - 20}, ${cx + h + 30} ${groundY - 2}`}
+        stroke={palette.trunkLight} strokeWidth={4} fill="none" opacity={0.55} strokeLinecap="round"
+      />
+      {/* Bark ridges rising from the base */}
+      {[-0.55, -0.2, 0.15, 0.5].map((f, i) => (
+        <Path
+          key={`ridge-${i}`}
+          d={`M ${cx + f * baseW * 0.85} ${groundY - 4} q ${f * 10} -42, ${f * 5} -${78 + (i % 2) * 18}`}
+          stroke={palette.trunkDark} strokeWidth={3.5} fill="none" opacity={0.35} strokeLinecap="round"
+        />
+      ))}
+      {/* Bark crack */}
+      <Path
+        d={`M ${cx - baseW * 0.06} ${groundY - 16} l -5 -22 l 7 -16 M ${cx - baseW * 0.06 - 5} ${groundY - 38} l -8 -12`}
+        stroke={palette.trunkDark} strokeWidth={2.5} fill="none" opacity={0.5} strokeLinecap="round"
+      />
+      {/* Moss hugging the left base */}
+      <Ellipse cx={cx - h + 2} cy={groundY - 6} rx={17} ry={7} fill={palette.leafBase} opacity={0.85} />
+      <Ellipse cx={cx - h + 15} cy={groundY - 2} rx={11} ry={5} fill={palette.leafMain} opacity={0.85} />
+      <Ellipse cx={cx - h - 8} cy={groundY - 1} rx={8} ry={4} fill={palette.leafMain} opacity={0.7} />
+      {/* Grass tufts */}
+      <G stroke={palette.leafMain} strokeWidth={3} strokeLinecap="round" fill="none">
+        <Path d={`M ${cx - h - 66} ${groundY + 8} q -3 -10, -8 -14`} />
+        <Path d={`M ${cx - h - 61} ${groundY + 8} q 0 -12, 1 -17`} />
+        <Path d={`M ${cx - h - 56} ${groundY + 8} q 3 -9, 8 -12`} />
+        <Path d={`M ${cx + h + 68} ${groundY + 8} q -3 -10, -6 -13`} />
+        <Path d={`M ${cx + h + 73} ${groundY + 8} q 1 -12, 2 -16`} />
+        <Path d={`M ${cx + h + 78} ${groundY + 8} q 4 -8, 9 -11`} />
+      </G>
+      {/* Cute mushroom by the right root */}
+      <G>
+        <Path d={`M ${cx + h + 28} ${groundY + 4} l 0 -13 l 9 0 l 0 13 Z`} fill="#FDE68A" />
+        <Path d={`M ${cx + h + 21} ${groundY - 9} Q ${cx + h + 32.5} ${groundY - 27}, ${cx + h + 44} ${groundY - 9} Z`} fill="#EF4444" />
+        <Circle cx={cx + h + 29} cy={groundY - 14} r={1.9} fill="#FFF" />
+        <Circle cx={cx + h + 38} cy={groundY - 13} r={1.5} fill="#FFF" />
+        <Circle cx={cx + h + 33} cy={groundY - 19} r={1.4} fill="#FFF" />
+      </G>
+      {/* Tiny pebbles */}
+      <Ellipse cx={cx - h - 34} cy={groundY + 6} rx={6} ry={3.5} fill="#D6D3D1" />
+      <Ellipse cx={cx - h - 26} cy={groundY + 8} rx={4} ry={2.5} fill="#A8A29E" />
+    </G>
+  );
+}
+
 // Tiny leafy sprig growing from the side of the trunk
 function TrunkSprig({
   x, y, side, palette,
@@ -258,11 +343,13 @@ function TrunkSprig({
   );
 }
 
-export function TreeView({ stage, xp, branches: branchCount, width = CANVAS_W, season }: Props) {
+export function TreeView({ stage, xp, branches: branchCount, ageDays = 0, width = CANVAS_W, season }: Props) {
   const activeSeason = season ?? seasonNow();
   const p = PALETTES[activeSeason];
   const cx = CANVAS_W / 2;
-  const baseW = TRUNK_BASE_W[stage];
+  // Trunk thickens 8% every 10 days of the tree's life, capped at day 100 (up to 1.8x)
+  const growthSteps = Math.floor(Math.min(Math.max(ageDays, 0), 100) / 10);
+  const baseW = TRUNK_BASE_W[stage] * (1 + 0.08 * growthSteps);
   const canopyR = CANOPY_R_BY_STAGE[stage] * p.canopyScale;
 
   const maxBranches = MAX_BRANCHES_BY_STAGE[stage];
@@ -351,26 +438,6 @@ export function TreeView({ stage, xp, branches: branchCount, width = CANVAS_W, s
         <Ellipse cx={cx} cy={GROUND_Y + 34} rx={220} ry={52} fill={p.ground} />
         <Ellipse cx={cx} cy={GROUND_Y + 22} rx={190} ry={36} fill={p.ground2} />
 
-        {/* Root flare */}
-        {stage !== "sprout" && (
-          <G>
-            <Path
-              d={`M ${cx - baseW * 0.95} ${GROUND_Y + 12}
-                  Q ${cx - baseW * 0.4} ${GROUND_Y - 8}, ${cx - baseW * 0.55} ${GROUND_Y - 34}
-                  L ${cx - baseW * 0.3} ${GROUND_Y - 22}
-                  Q ${cx - baseW * 0.15} ${GROUND_Y - 5}, ${cx - baseW * 0.2} ${GROUND_Y + 14} Z`}
-              fill={p.trunkDark}
-            />
-            <Path
-              d={`M ${cx + baseW * 0.95} ${GROUND_Y + 12}
-                  Q ${cx + baseW * 0.4} ${GROUND_Y - 8}, ${cx + baseW * 0.55} ${GROUND_Y - 34}
-                  L ${cx + baseW * 0.3} ${GROUND_Y - 22}
-                  Q ${cx + baseW * 0.15} ${GROUND_Y - 5}, ${cx + baseW * 0.2} ${GROUND_Y + 14} Z`}
-              fill={p.trunkDark}
-            />
-          </G>
-        )}
-
         {/* MAIN TRUNK — tapered from wide base to narrower top */}
         {(() => {
           const topW = baseW * 0.55;
@@ -416,6 +483,11 @@ export function TreeView({ stage, xp, branches: branchCount, width = CANVAS_W, s
             </G>
           );
         })()}
+
+        {/* Detailed stump — roots, ridges, moss, grass, mushroom (drawn over trunk base) */}
+        {stage !== "sprout" && (
+          <StumpDetail cx={cx} groundY={GROUND_Y} baseW={baseW} palette={p} />
+        )}
 
         {/* CANOPY — bumpy cloud */}
         {canopyR > 0 && (

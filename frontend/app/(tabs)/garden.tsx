@@ -29,6 +29,7 @@ type Plant = {
   progress: { stage: Stage; stage_min: number; stage_max: number; in_stage: number; stage_span: number };
   bloomed_at: string | null;
   note?: string;
+  created_at?: string;
 };
 
 export default function Garden() {
@@ -216,6 +217,7 @@ export default function Garden() {
             stage={current?.stage || "seed"}
             xp={current?.xp || 0}
             branches={completedGoals.length}
+            ageDays={current?.created_at ? Math.max(0, Math.floor((Date.now() - new Date(current.created_at).getTime()) / 86400000)) : 0}
             season={activeSeason}
             width={340}
           />

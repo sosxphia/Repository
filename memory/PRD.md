@@ -35,3 +35,7 @@ Tactile / Playful (Personality 4) — cream #FFFCF6, sunshine yellow #F59E0B, em
 - Branches are now PURELY AESTHETIC: no goal tooltips, no tap targets. Branch count still = number of completed goals (capped by stage), but no goal titles shown on the tree.
 - New trunk details: bird holes (dark hollow with bark rim; topmost hole has a little bluebird peeking) spaced along the trunk, and small leafy sprigs sprouting from trunk sides between branches. Branches also got individual tip leaves.
 - `TreeView` prop changed: `goals: {goal_id,title}[]` → `branches: number`.
+- Branch leaf-ball clusters removed (June 2026) — branches show only slim ellipse leaves along them and at tips.
+- Trunk thickness now grows with tree AGE: +8% per 10 full days since plant `created_at`, capped at day 100 (max 1.8x base width). Computed in garden.tsx as `ageDays`, passed to `TreeView`.
+- Stump redesigned with `StumpDetail` component: big root flares, knuckle roots, bark ridges/crack, moss, grass tufts, red mushroom, pebbles — drawn over the trunk base.
+- Test plant for `ui-test-user` was backdated 45 days to verify thickening.
