@@ -173,11 +173,11 @@ export default function Garden() {
           </Pressable>
         </View>
 
-        {/* Hero tree card */}
+        {/* Info card — stage, season, name, XP, progress (compact) */}
         <LinearGradient
           colors={["#FEF3C7", "#DCFCE7"]}
           start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          style={styles.heroCard}
+          style={styles.infoCard}
         >
           <View style={styles.badgesRow}>
             <View style={styles.stageBadge}>
@@ -185,18 +185,16 @@ export default function Garden() {
             </View>
             {(() => {
               const info = SEASON_LABELS[activeSeason];
-              const suffix = seasonOverride === "auto" ? "" : " ·";
+              const suffix = seasonOverride === "auto" ? "" : " · manual";
               return (
                 <Pressable onPress={cycleSeason} testID="season-badge" style={[styles.seasonBadge, { backgroundColor: info.chipBg }]}>
                   <Text style={[styles.seasonBadgeText, { color: info.chipFg }]}>
                     {info.emoji} {info.label}{suffix}
-                    {seasonOverride === "auto" ? "" : " manual"}
                   </Text>
                 </Pressable>
               );
             })()}
           </View>
-          <TreeView stage={current?.stage || "seed"} xp={current?.xp || 0} goals={completedGoals} size={240} season={activeSeason} />
           <Text style={styles.heroName} testID="current-plant-emoji">{current?.name}</Text>
           <Text style={styles.xpText}>{current?.xp} XP · {completedGoals.length} {completedGoals.length === 1 ? "branch" : "branches"} 🌿</Text>
 
@@ -208,7 +206,19 @@ export default function Garden() {
               {current?.progress.in_stage} / {current?.progress.stage_span} to next stage · {percentage}%
             </Text>
           </View>
+          <Text style={styles.scrollHint}>Scroll ↓ to walk down your tree</Text>
         </LinearGradient>
+
+        {/* GIANT SCROLLABLE TREE — full journey from canopy to roots */}
+        <View style={styles.treeCanvas}>
+          <TreeView
+            stage={current?.stage || "seed"}
+            xp={current?.xp || 0}
+            goals={completedGoals}
+            season={activeSeason}
+            width={340}
+          />
+        </View>
 
         {/* Memory note editor */}
         <Pressable onPress={openJournal} style={styles.noteCard} testID="tree-memory-card">
@@ -365,6 +375,24 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg, padding: spacing.xl,
     alignItems: "center", borderWidth: 2, borderColor: "#FDE68A",
     shadowColor: colors.shadow, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 1, shadowRadius: 16, elevation: 4,
+  },
+  infoCard: {
+    borderRadius: radius.lg, padding: spacing.lg,
+    alignItems: "center", borderWidth: 2, borderColor: "#FDE68A",
+    shadowColor: colors.shadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 3,
+  },
+  treeCanvas: {
+    marginTop: spacing.md,
+    alignItems: "center",
+    backgroundColor: "#FEF7CD",
+    borderRadius: radius.lg,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "#FDE68A",
+  },
+  scrollHint: {
+    fontSize: 11, color: colors.onSurfaceMuted, marginTop: 6, fontWeight: "700",
+    letterSpacing: 0.5, textTransform: "uppercase",
   },
   stageBadge: {
     backgroundColor: colors.brandPrimary, paddingHorizontal: spacing.md, paddingVertical: 6,

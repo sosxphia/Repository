@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
+from fastapi.responses import RedirectResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -7,6 +8,7 @@ import logging
 import uuid
 import httpx
 import jwt
+import stripe
 from jwt import PyJWKClient
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -254,18 +256,57 @@ async def logout(authorization: Optional[str] = Header(None)):
 
 # ---------- Plants ----------
 async def _serialize_plant(p):
+    now = now_utc()
+    is_dead = p.get("is_dead", False)
     return {
         "plant_id": p["plant_id"],
         "name": p["name"],
-        "species": p.get("species", "succulent"),
+        "species": p.get("species", "tree"),
         "xp": p.get("xp", 0),
         "is_current": p.get("is_current", False),
-        "stage": stage_for_xp(p.get("xp", 0)),
-        "progress": stage_progress(p.get("xp", 0)),
+        "is_dead": is_dead,
+        "stage": "seed" if is_dead else stage_for_xp(p.get("xp", 0)),
+        "progress": stage_progress(0 if is_dead else p.get("xp", 0)),
         "note": p.get("note", ""),
-        "created_at": (p.get("created_at") or now_utc()).isoformat(),
+        "created_at": (p.get("created_at") or now).isoformat(),
         "bloomed_at": p["bloomed_at"].isoformat() if p.get("bloomed_at") else None,
+        "died_at": p["died_at"].isoformat() if p.get("died_at") else None,
     }
+
+async def _check_and_kill_stale_plant(user):
+    """If last_activity was 2+ days ago, current tree dies (unless a freeze is consumed first)."""
+    last = user.get("last_activity_date")
+    if not last:
+        return
+    if hasattr(last, "date"):
+        last_date = last.date() if last.tzinfo else last.replace(tzinfo=timezone.utc).date()
+    else:
+        last_date = datetime.fromisoformat(str(last)).date()
+    today = now_utc().date()
+    gap = (today - last_date).days
+    if gap < 2:
+        return  # missing 1 day is a grace period
+    # Consume freezes to cover missed days
+    freezes = int(user.get("streak_freezes", 0))
+    missed = gap - 1
+    if freezes >= missed:
+        # Consume freezes: streak survives, bump last_activity_date to yesterday so gap becomes 1
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$inc": {"streak_freezes": -missed},
+             "$set": {"last_activity_date": now_utc() - timedelta(days=1)}},
+        )
+        return
+    # Not enough freezes: kill current tree, reset streak
+    consumed = freezes
+    await db.plants.update_many(
+        {"user_id": user["user_id"], "is_current": True, "is_dead": {"$ne": True}},
+        {"$set": {"is_dead": True, "died_at": now_utc()}},
+    )
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"streak_days": 0, "streak_freezes": max(0, freezes - consumed)}},
+    )
 
 @api_router.get("/plants")
 async def list_plants(authorization: Optional[str] = Header(None)):
@@ -276,6 +317,8 @@ async def list_plants(authorization: Optional[str] = Header(None)):
 @api_router.get("/plants/current")
 async def current_plant(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
+    await _check_and_kill_stale_plant(user)
+    user = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     p = await db.plants.find_one({"user_id": user["user_id"], "is_current": True}, {"_id": 0})
     if not p:
         # Create one

@@ -1,5 +1,5 @@
-import { View } from "react-native";
-import Svg, { Rect, Circle, Line, Ellipse, G } from "react-native-svg";
+import { View, Text } from "react-native";
+import Svg, { Rect, Circle, Line, Ellipse, G, Path } from "react-native-svg";
 import { Stage } from "@/src/lib/plant";
 
 export type Season = "spring" | "summer" | "autumn" | "winter";
@@ -24,7 +24,8 @@ type Palette = {
   leafMain: string; leafDark: string; leafLight: string;
   fruit: string;
   ground: string; ground2: string;
-  canopyScale: number; // how full the canopy renders
+  sky: string;
+  canopyScale: number;
   showSnow?: boolean;
 };
 
@@ -34,6 +35,7 @@ const PALETTES: Record<Season, Palette> = {
     leafMain: "#86EFAC", leafDark: "#22C55E", leafLight: "#DCFCE7",
     fruit: "#F472B6",
     ground: "#DCFCE7", ground2: "#BBF7D0",
+    sky: "#FEF3C7",
     canopyScale: 1.0,
   },
   summer: {
@@ -41,6 +43,7 @@ const PALETTES: Record<Season, Palette> = {
     leafMain: "#059669", leafDark: "#047857", leafLight: "#34D399",
     fruit: "#F59E0B",
     ground: "#DCFCE7", ground2: "#BBF7D0",
+    sky: "#FEF3C7",
     canopyScale: 1.0,
   },
   autumn: {
@@ -48,14 +51,16 @@ const PALETTES: Record<Season, Palette> = {
     leafMain: "#EA580C", leafDark: "#9A3412", leafLight: "#FB923C",
     fruit: "#DC2626",
     ground: "#FEF3C7", ground2: "#FDE68A",
-    canopyScale: 0.92,
+    sky: "#FED7AA",
+    canopyScale: 0.95,
   },
   winter: {
     trunk: "#57534E", trunkShadow: "#44403C",
     leafMain: "#94A3B8", leafDark: "#64748B", leafLight: "#E2E8F0",
     fruit: "#F8FAFC",
     ground: "#F1F5F9", ground2: "#E2E8F0",
-    canopyScale: 0.55,
+    sky: "#E0F2FE",
+    canopyScale: 0.6,
     showSnow: true,
   },
 };
@@ -64,104 +69,176 @@ type Props = {
   stage: Stage;
   xp: number;
   goals: { goal_id: string; title: string }[];
-  size?: number;
+  width?: number;
+  height?: number;
   season?: Season;
+  labelsOnBranches?: boolean;
 };
 
-const CANVAS_W = 260;
-const CANVAS_H = 260;
-const GROUND_Y = 240;
+// Giant scrollable canvas
+const CANVAS_W = 360;
+const CANVAS_H = 1200;      // tall canvas for scrolling journey
+const GROUND_Y = 1160;
+const TRUNK_W_BASE = 44;    // fat trunk
 
-const TRUNK_BY_STAGE: Record<Stage, { h: number; w: number }> = {
-  seed: { h: 4, w: 5 },
-  sprout: { h: 26, w: 8 },
-  sapling: { h: 60, w: 14 },
-  bloom: { h: 100, w: 20 },
+// Trunk top Y by stage — how tall the tree currently is
+const TRUNK_TOP_BY_STAGE: Record<Stage, number> = {
+  seed: GROUND_Y - 20,
+  sprout: GROUND_Y - 150,
+  sapling: GROUND_Y - 500,
+  bloom: GROUND_Y - 900,
 };
 
-const CANOPY_BY_STAGE: Record<Stage, number> = {
+// Canopy radius by stage
+const CANOPY_R_BY_STAGE: Record<Stage, number> = {
   seed: 0,
-  sprout: 16,
-  sapling: 42,
-  bloom: 70,
+  sprout: 40,
+  sapling: 90,
+  bloom: 160,
 };
 
-export function TreeView({ stage, xp, goals, size = CANVAS_W, season }: Props) {
+export function TreeView({
+  stage,
+  xp,
+  goals,
+  width = CANVAS_W,
+  height,
+  season,
+  labelsOnBranches = true,
+}: Props) {
   const activeSeason = season ?? seasonNow();
   const p = PALETTES[activeSeason];
-  const trunk = TRUNK_BY_STAGE[stage];
-  const canopyR = CANOPY_BY_STAGE[stage] * p.canopyScale;
-  const trunkTopY = GROUND_Y - trunk.h;
+
+  const trunkTopY = TRUNK_TOP_BY_STAGE[stage];
+  const canopyR = CANOPY_R_BY_STAGE[stage] * p.canopyScale;
   const cx = CANVAS_W / 2;
 
-  const maxBranches = stage === "seed" ? 0 : stage === "sprout" ? 3 : stage === "sapling" ? 8 : 14;
+  const trunkH = GROUND_Y - trunkTopY;
+  const trunkW = TRUNK_W_BASE * (stage === "seed" ? 0.3 : stage === "sprout" ? 0.5 : stage === "sapling" ? 0.75 : 1);
+
+  // Determine how many branches to display — no artificial cap now, tree is giant
+  const maxBranches = stage === "seed" ? 0 : stage === "sprout" ? 3 : stage === "sapling" ? 12 : 30;
   const visibleGoals = goals.slice(0, maxBranches);
 
+  // Branches distributed along the visible trunk (bottom 90% so canopy doesn't hide them)
+  const branchTopY = trunkTopY + trunkH * 0.05;
+  const branchBotY = GROUND_Y - trunkH * 0.08;
   const branches = visibleGoals.map((g, i) => {
     const side = i % 2 === 0 ? -1 : 1;
     const spread = maxBranches > 1 ? i / (maxBranches - 1) : 0.5;
-    const offset = 0.2 + spread * 0.6;
-    const y = GROUND_Y - trunk.h * offset;
-    const branchLen = 22 + Math.min(canopyR * 0.4, 18);
-    const angleDeg = 30 + (i % 3) * 8;
+    const y = branchBotY - spread * (branchBotY - branchTopY);
+    const branchLen = 60 + Math.min(canopyR * 0.35, 40);
+    // Alternate angle a bit so branches don't overlap perfectly
+    const angleDeg = 25 + (i % 4) * 6;
     const rad = (angleDeg * Math.PI) / 180;
     const endX = cx + side * Math.cos(rad) * branchLen;
     const endY = y - Math.sin(rad) * branchLen;
+    // Leaf cluster radius
+    const leafR = 12 + (spread * 4);
     return {
       key: g.goal_id,
-      startX: cx + side * (trunk.w / 2 - 1),
+      title: g.title,
+      side,
+      startX: cx + side * (trunkW / 2 - 2),
       startY: y,
       endX,
       endY,
+      leafR,
     };
   });
 
-  // Seed stage
+  const finalHeight = height ?? Math.round((CANVAS_H / CANVAS_W) * width);
+
+  // Seed stage — small mound near the bottom, still on the giant canvas
   if (stage === "seed") {
     return (
-      <View style={{ width: size, height: size, alignItems: "center", justifyContent: "flex-end" }} testID="tree-svg">
-        <Svg width={size} height={size} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
-          <Ellipse cx={cx} cy={GROUND_Y + 6} rx={70} ry={10} fill={p.ground} />
-          <Ellipse cx={cx} cy={GROUND_Y + 2} rx={22} ry={8} fill="#A16207" />
-          <Ellipse cx={cx} cy={GROUND_Y - 1} rx={16} ry={5} fill="#78350F" />
-          <Rect x={cx - 1.5} y={GROUND_Y - 10} width={3} height={10} rx={1.5} fill={p.leafDark} />
-          <Ellipse cx={cx - 5} cy={GROUND_Y - 11} rx={5} ry={3} fill={p.leafMain} transform={`rotate(-25 ${cx - 5} ${GROUND_Y - 11})`} />
-          <Ellipse cx={cx + 5} cy={GROUND_Y - 12} rx={5} ry={3} fill={p.leafLight} transform={`rotate(25 ${cx + 5} ${GROUND_Y - 12})`} />
-          {p.showSnow && <>
-            <Circle cx={cx - 30} cy={GROUND_Y - 40} r={2} fill="#FFF" />
-            <Circle cx={cx + 40} cy={GROUND_Y - 60} r={1.5} fill="#FFF" />
-            <Circle cx={cx - 60} cy={GROUND_Y - 80} r={2} fill="#FFF" />
-          </>}
+      <View style={{ width, height: finalHeight, alignSelf: "center" }} testID="tree-svg">
+        <Svg width={width} height={finalHeight} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
+          <Rect x={0} y={0} width={CANVAS_W} height={CANVAS_H} fill={p.sky} />
+          <Ellipse cx={cx} cy={GROUND_Y + 24} rx={180} ry={40} fill={p.ground} />
+          <Ellipse cx={cx} cy={GROUND_Y + 14} rx={140} ry={26} fill={p.ground2} />
+          <Ellipse cx={cx} cy={GROUND_Y + 4} rx={60} ry={16} fill="#A16207" />
+          <Ellipse cx={cx} cy={GROUND_Y - 4} rx={44} ry={10} fill="#78350F" />
+          <Rect x={cx - 3} y={GROUND_Y - 28} width={6} height={28} rx={3} fill={p.leafDark} />
+          <Ellipse cx={cx - 14} cy={GROUND_Y - 26} rx={14} ry={7} fill={p.leafMain} transform={`rotate(-25 ${cx - 14} ${GROUND_Y - 26})`} />
+          <Ellipse cx={cx + 14} cy={GROUND_Y - 32} rx={14} ry={7} fill={p.leafLight} transform={`rotate(25 ${cx + 14} ${GROUND_Y - 32})`} />
         </Svg>
       </View>
     );
   }
 
   return (
-    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "flex-end" }} testID="tree-svg">
-      <Svg width={size} height={size} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
+    <View style={{ width, height: finalHeight, alignSelf: "center" }} testID="tree-svg">
+      <Svg width={width} height={finalHeight} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
+        {/* Sky background */}
+        <Rect x={0} y={0} width={CANVAS_W} height={CANVAS_H} fill={p.sky} />
+
+        {/* Distant hills (parallax feel) */}
+        <Ellipse cx={80} cy={GROUND_Y + 40} rx={150} ry={40} fill={p.ground2} opacity={0.5} />
+        <Ellipse cx={CANVAS_W - 60} cy={GROUND_Y + 30} rx={130} ry={36} fill={p.ground2} opacity={0.5} />
+
         {/* Ground */}
-        <Ellipse cx={cx} cy={GROUND_Y + 8} rx={90} ry={12} fill={p.ground} />
-        <Ellipse cx={cx} cy={GROUND_Y + 6} rx={70} ry={8} fill={p.ground2} />
+        <Ellipse cx={cx} cy={GROUND_Y + 30} rx={210} ry={48} fill={p.ground} />
+        <Ellipse cx={cx} cy={GROUND_Y + 20} rx={180} ry={32} fill={p.ground2} />
 
-        {/* Trunk */}
-        <Rect x={cx - trunk.w / 2 - 1} y={trunkTopY} width={trunk.w + 2} height={trunk.h + 2} rx={trunk.w / 2} fill={p.trunkShadow} />
-        <Rect x={cx - trunk.w / 2} y={trunkTopY} width={trunk.w} height={trunk.h} rx={trunk.w / 2} fill={p.trunk} />
+        {/* Fat organic trunk (curvy path so it doesn't look like a rectangle) */}
+        <Path
+          d={`
+            M ${cx - trunkW / 2} ${GROUND_Y}
+            Q ${cx - trunkW / 2 - 6} ${trunkTopY + trunkH * 0.5}, ${cx - trunkW / 2 + 2} ${trunkTopY + trunkH * 0.15}
+            Q ${cx - trunkW / 2 + 6} ${trunkTopY}, ${cx} ${trunkTopY - 6}
+            Q ${cx + trunkW / 2 - 6} ${trunkTopY}, ${cx + trunkW / 2 - 2} ${trunkTopY + trunkH * 0.15}
+            Q ${cx + trunkW / 2 + 6} ${trunkTopY + trunkH * 0.5}, ${cx + trunkW / 2} ${GROUND_Y}
+            Z
+          `}
+          fill={p.trunkShadow}
+        />
+        <Path
+          d={`
+            M ${cx - trunkW / 2 + 3} ${GROUND_Y}
+            Q ${cx - trunkW / 2 - 2} ${trunkTopY + trunkH * 0.5}, ${cx - trunkW / 2 + 6} ${trunkTopY + trunkH * 0.15}
+            Q ${cx - trunkW / 2 + 8} ${trunkTopY + 4}, ${cx} ${trunkTopY - 2}
+            Q ${cx + trunkW / 2 - 8} ${trunkTopY + 4}, ${cx + trunkW / 2 - 6} ${trunkTopY + trunkH * 0.15}
+            Q ${cx + trunkW / 2 + 2} ${trunkTopY + trunkH * 0.5}, ${cx + trunkW / 2 - 3} ${GROUND_Y}
+            Z
+          `}
+          fill={p.trunk}
+        />
 
-        {/* Canopy */}
+        {/* Trunk texture: knots and grain lines */}
+        {stage !== "sprout" && (
+          <G opacity={0.35}>
+            <Ellipse cx={cx - trunkW * 0.15} cy={GROUND_Y - trunkH * 0.35} rx={5} ry={7} fill={p.trunkShadow} />
+            <Ellipse cx={cx + trunkW * 0.2} cy={GROUND_Y - trunkH * 0.6} rx={4} ry={6} fill={p.trunkShadow} />
+            <Line x1={cx - trunkW * 0.3} y1={GROUND_Y - trunkH * 0.15} x2={cx - trunkW * 0.3} y2={GROUND_Y - trunkH * 0.55} stroke={p.trunkShadow} strokeWidth={1} />
+            <Line x1={cx + trunkW * 0.25} y1={GROUND_Y - trunkH * 0.2} x2={cx + trunkW * 0.25} y2={GROUND_Y - trunkH * 0.7} stroke={p.trunkShadow} strokeWidth={1} />
+          </G>
+        )}
+
+        {/* Canopy — big layered cloud of leaves */}
         {canopyR > 0 && (
           <G>
-            <Circle cx={cx - canopyR * 0.55} cy={trunkTopY - canopyR * 0.25} r={canopyR * 0.75} fill={p.leafDark} />
-            <Circle cx={cx + canopyR * 0.55} cy={trunkTopY - canopyR * 0.25} r={canopyR * 0.72} fill={p.leafDark} />
-            <Circle cx={cx} cy={trunkTopY - canopyR * 0.55} r={canopyR * 0.85} fill={p.leafMain} />
-            <Circle cx={cx - canopyR * 0.35} cy={trunkTopY - canopyR * 0.6} r={canopyR * 0.55} fill={p.leafLight} />
-            <Circle cx={cx + canopyR * 0.3} cy={trunkTopY - canopyR * 0.7} r={canopyR * 0.45} fill={p.leafLight} />
+            {/* Base darker layer */}
+            <Circle cx={cx - canopyR * 0.7} cy={trunkTopY - canopyR * 0.15} r={canopyR * 0.75} fill={p.leafDark} />
+            <Circle cx={cx + canopyR * 0.7} cy={trunkTopY - canopyR * 0.15} r={canopyR * 0.72} fill={p.leafDark} />
+            <Circle cx={cx - canopyR * 0.35} cy={trunkTopY - canopyR * 0.8} r={canopyR * 0.65} fill={p.leafDark} />
+            <Circle cx={cx + canopyR * 0.35} cy={trunkTopY - canopyR * 0.85} r={canopyR * 0.6} fill={p.leafDark} />
+            {/* Main layer */}
+            <Circle cx={cx} cy={trunkTopY - canopyR * 0.55} r={canopyR * 0.95} fill={p.leafMain} />
+            <Circle cx={cx - canopyR * 0.5} cy={trunkTopY - canopyR * 0.35} r={canopyR * 0.6} fill={p.leafMain} />
+            <Circle cx={cx + canopyR * 0.5} cy={trunkTopY - canopyR * 0.35} r={canopyR * 0.6} fill={p.leafMain} />
+            {/* Highlights */}
+            <Circle cx={cx - canopyR * 0.3} cy={trunkTopY - canopyR * 0.75} r={canopyR * 0.4} fill={p.leafLight} />
+            <Circle cx={cx + canopyR * 0.35} cy={trunkTopY - canopyR * 0.7} r={canopyR * 0.35} fill={p.leafLight} />
+            <Circle cx={cx} cy={trunkTopY - canopyR * 1.05} r={canopyR * 0.35} fill={p.leafLight} />
             {stage === "bloom" && (
               <G>
-                <Circle cx={cx - canopyR * 0.35} cy={trunkTopY - canopyR * 0.4} r={4} fill={p.fruit} />
-                <Circle cx={cx + canopyR * 0.4} cy={trunkTopY - canopyR * 0.5} r={4} fill={p.fruit} />
-                <Circle cx={cx} cy={trunkTopY - canopyR * 0.9} r={4} fill={p.fruit} />
-                <Circle cx={cx + canopyR * 0.1} cy={trunkTopY - canopyR * 0.2} r={4} fill={p.fruit} />
+                <Circle cx={cx - canopyR * 0.45} cy={trunkTopY - canopyR * 0.4} r={7} fill={p.fruit} />
+                <Circle cx={cx + canopyR * 0.5} cy={trunkTopY - canopyR * 0.5} r={7} fill={p.fruit} />
+                <Circle cx={cx} cy={trunkTopY - canopyR * 0.9} r={7} fill={p.fruit} />
+                <Circle cx={cx + canopyR * 0.15} cy={trunkTopY - canopyR * 0.15} r={7} fill={p.fruit} />
+                <Circle cx={cx - canopyR * 0.2} cy={trunkTopY - canopyR * 0.6} r={6} fill={p.fruit} />
+                <Circle cx={cx + canopyR * 0.75} cy={trunkTopY - canopyR * 0.1} r={6} fill={p.fruit} />
               </G>
             )}
           </G>
@@ -170,32 +247,49 @@ export function TreeView({ stage, xp, goals, size = CANVAS_W, season }: Props) {
         {/* Branches per completed goal */}
         {branches.map((b) => (
           <G key={b.key}>
-            <Line x1={b.startX} y1={b.startY} x2={b.endX} y2={b.endY} stroke={p.trunk} strokeWidth={2.5} strokeLinecap="round" />
-            <Circle cx={b.endX} cy={b.endY} r={5.5} fill={p.leafDark} />
-            <Circle cx={b.endX - 1} cy={b.endY - 1.5} r={2.5} fill={p.leafLight} />
+            {/* Branch line — organic, slightly thicker near the trunk */}
+            <Line
+              x1={b.startX} y1={b.startY}
+              x2={b.endX} y2={b.endY}
+              stroke={p.trunk} strokeWidth={5} strokeLinecap="round"
+            />
+            <Line
+              x1={b.startX} y1={b.startY}
+              x2={b.endX} y2={b.endY}
+              stroke={p.trunkShadow} strokeWidth={2} strokeLinecap="round" opacity={0.4}
+            />
+            {/* Leaf cluster on the branch tip */}
+            <Circle cx={b.endX} cy={b.endY} r={b.leafR} fill={p.leafDark} />
+            <Circle cx={b.endX + b.side * 4} cy={b.endY - 3} r={b.leafR * 0.75} fill={p.leafMain} />
+            <Circle cx={b.endX - b.side * 3} cy={b.endY - 5} r={b.leafR * 0.55} fill={p.leafLight} />
           </G>
         ))}
 
-        {/* Autumn falling leaves */}
-        {activeSeason === "autumn" && stage !== "sprout" && (
+        {/* Autumn fallen leaves scattered along the ground */}
+        {activeSeason === "autumn" && (
           <G opacity={0.9}>
-            <Ellipse cx={cx - 60} cy={GROUND_Y - 8} rx={5} ry={2} fill={p.leafMain} transform={`rotate(-20 ${cx - 60} ${GROUND_Y - 8})`} />
-            <Ellipse cx={cx + 55} cy={GROUND_Y - 6} rx={5} ry={2} fill={p.leafLight} transform={`rotate(30 ${cx + 55} ${GROUND_Y - 6})`} />
-            <Ellipse cx={cx - 40} cy={GROUND_Y + 2} rx={4} ry={2} fill={p.fruit} transform={`rotate(15 ${cx - 40} ${GROUND_Y + 2})`} />
-            <Ellipse cx={cx + 35} cy={GROUND_Y + 3} rx={4} ry={2} fill={p.leafDark} transform={`rotate(-40 ${cx + 35} ${GROUND_Y + 3})`} />
+            {[0.15, 0.32, 0.5, 0.68, 0.82].map((t, idx) => {
+              const x = 40 + t * (CANVAS_W - 80);
+              const y = GROUND_Y + 8 + (idx % 2) * 6;
+              const rot = -30 + idx * 20;
+              const col = [p.leafMain, p.leafLight, p.fruit, p.leafDark][idx % 4];
+              return (
+                <Ellipse key={`leaf-${idx}`} cx={x} cy={y} rx={8} ry={3} fill={col} transform={`rotate(${rot} ${x} ${y})`} />
+              );
+            })}
           </G>
         )}
 
-        {/* Winter snow specks + snow-capped ground */}
+        {/* Winter snowflakes drifting in the sky */}
         {p.showSnow && (
           <G>
-            <Ellipse cx={cx} cy={GROUND_Y + 4} rx={72} ry={6} fill="#FFF" opacity={0.85} />
-            <Circle cx={cx - 60} cy={40} r={2} fill="#FFF" />
-            <Circle cx={cx + 60} cy={70} r={1.5} fill="#FFF" />
-            <Circle cx={cx - 20} cy={20} r={2} fill="#FFF" />
-            <Circle cx={cx + 40} cy={30} r={1.5} fill="#FFF" />
-            <Circle cx={cx - 80} cy={100} r={2} fill="#FFF" />
-            <Circle cx={cx + 90} cy={130} r={1.5} fill="#FFF" />
+            <Ellipse cx={cx} cy={GROUND_Y + 10} rx={190} ry={12} fill="#FFF" opacity={0.85} />
+            {[[60, 220], [140, 90], [220, 300], [300, 160], [60, 480], [280, 520], [180, 700]].map(([x, y], i) => (
+              <Circle key={`snow-${i}`} cx={x} cy={y} r={3} fill="#FFF" />
+            ))}
+            {[[100, 380], [240, 240], [80, 620], [300, 780], [180, 900]].map(([x, y], i) => (
+              <Circle key={`snow2-${i}`} cx={x} cy={y} r={2} fill="#FFF" />
+            ))}
           </G>
         )}
       </Svg>
