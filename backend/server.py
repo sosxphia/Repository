@@ -80,6 +80,10 @@ class PlantReset(BaseModel):
     name: Optional[str] = None
     species: Optional[str] = "succulent"
 
+class PlantUpdate(BaseModel):
+    note: Optional[str] = None
+    name: Optional[str] = None
+
 class DailyQuestToggle(BaseModel):
     completed: bool
 
@@ -165,6 +169,7 @@ async def _serialize_plant(p):
         "is_current": p.get("is_current", False),
         "stage": stage_for_xp(p.get("xp", 0)),
         "progress": stage_progress(p.get("xp", 0)),
+        "note": p.get("note", ""),
         "created_at": (p.get("created_at") or now_utc()).isoformat(),
         "bloomed_at": p["bloomed_at"].isoformat() if p.get("bloomed_at") else None,
     }
@@ -206,6 +211,22 @@ async def create_plant(payload: PlantCreate, authorization: Optional[str] = Head
     }
     await db.plants.insert_one(doc)
     p = await db.plants.find_one({"plant_id": pid}, {"_id": 0})
+    return await _serialize_plant(p)
+
+@api_router.patch("/plants/{plant_id}")
+async def update_plant(plant_id: str, payload: PlantUpdate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    updates = {}
+    if payload.note is not None:
+        updates["note"] = payload.note.strip()[:200]
+    if payload.name is not None and payload.name.strip():
+        updates["name"] = payload.name.strip()[:40]
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    res = await db.plants.update_one({"plant_id": plant_id, "user_id": user["user_id"]}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Plant not found")
+    p = await db.plants.find_one({"plant_id": plant_id}, {"_id": 0})
     return await _serialize_plant(p)
 
 async def _add_xp(user_id: str, amount: int):

@@ -23,6 +23,7 @@ type Plant = {
   stage: Stage;
   progress: { stage: Stage; stage_min: number; stage_max: number; in_stage: number; stage_span: number };
   bloomed_at: string | null;
+  note?: string;
 };
 
 export default function Garden() {
@@ -37,6 +38,9 @@ export default function Garden() {
   const [resetting, setResetting] = useState(false);
   const [bloomVisible, setBloomVisible] = useState(false);
   const [bloomPlant, setBloomPlant] = useState<Plant | null>(null);
+  const [journalPlant, setJournalPlant] = useState<Plant | null>(null);
+  const [journalNote, setJournalNote] = useState("");
+  const [journalSaving, setJournalSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -68,6 +72,28 @@ export default function Garden() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onRefresh = () => { setRefreshing(true); load(); };
+
+  const openJournal = (p: Plant) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setJournalPlant(p);
+    setJournalNote(p.note || "");
+  };
+
+  const saveJournal = async () => {
+    if (!journalPlant) return;
+    setJournalSaving(true);
+    try {
+      await apiFetch(`/plants/${journalPlant.plant_id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ note: journalNote.trim() }),
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setJournalPlant(null);
+      load();
+    } finally {
+      setJournalSaving(false);
+    }
+  };
 
   const openReset = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -161,13 +187,23 @@ export default function Garden() {
         <Text style={styles.sectionTitle}>My Plants ({plants.length})</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.md, paddingRight: spacing.lg }}>
           {plants.map((p) => (
-            <View key={p.plant_id} style={[styles.plantChip, p.is_current && styles.plantChipActive]}>
+            <Pressable
+              key={p.plant_id}
+              onPress={() => openJournal(p)}
+              style={[styles.plantChip, p.is_current && styles.plantChipActive]}
+              testID={`plant-chip-${p.plant_id}`}
+            >
               <Text style={styles.chipEmoji}>{emojiFor(p.stage, p.species)}</Text>
               <Text style={styles.chipName} numberOfLines={1}>{p.name}</Text>
               <Text style={styles.chipStage}>{STAGE_LABEL[p.stage]}</Text>
               <Text style={styles.chipXp}>{p.xp} XP</Text>
               {p.bloomed_at && <Ionicons name="star" size={14} color={colors.brandPrimary} style={{ marginTop: 4 }} />}
-            </View>
+              {p.note ? (
+                <Text style={styles.chipNote} numberOfLines={2}>"{p.note}"</Text>
+              ) : (
+                <Text style={styles.chipNoteHint}>+ add memory</Text>
+              )}
+            </Pressable>
           ))}
         </ScrollView>
       </ScrollView>
@@ -238,11 +274,61 @@ export default function Garden() {
 
       <BloomCelebration
         visible={bloomVisible}
+        plantId={bloomPlant?.plant_id}
         plantName={bloomPlant?.name || "your plant"}
         species={bloomPlant?.species}
         xp={bloomPlant?.xp || 350}
-        onClose={() => setBloomVisible(false)}
+        onClose={() => { setBloomVisible(false); load(); }}
       />
+
+      <Modal transparent visible={!!journalPlant} animationType="slide" onRequestClose={() => setJournalPlant(null)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalWrap}
+        >
+          <Pressable style={styles.backdrop} onPress={() => setJournalPlant(null)} />
+          <View style={styles.sheet}>
+            <View style={styles.grabber} />
+            <Text style={styles.journalEmoji}>{journalPlant ? emojiFor(journalPlant.stage, journalPlant.species) : ""}</Text>
+            <Text style={styles.sheetTitle}>{journalPlant?.name}'s memory</Text>
+            <Text style={styles.sheetSub}>What was going on when this plant grew? A little note to look back on 💌</Text>
+            <TextInput
+              value={journalNote}
+              onChangeText={setJournalNote}
+              placeholder="e.g. finals week, learned to code, first marathon…"
+              placeholderTextColor={colors.onSurfaceMuted}
+              style={[styles.input, { minHeight: 90, textAlignVertical: "top" }]}
+              multiline
+              maxLength={200}
+              autoFocus
+              testID="journal-note-input"
+            />
+            <View style={styles.sheetRow}>
+              <Pressable
+                onPress={() => setJournalPlant(null)}
+                style={[styles.sheetBtn, { backgroundColor: colors.surfaceSecondary }]}
+                testID="journal-cancel-button"
+              >
+                <Text style={[styles.sheetBtnText, { color: colors.onSurface }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={saveJournal}
+                disabled={journalSaving}
+                style={({ pressed }) => [
+                  styles.sheetBtn,
+                  { backgroundColor: colors.brandSecondary, flex: 1.4 },
+                  pressed && { transform: [{ scale: 0.96 }] },
+                ]}
+                testID="journal-save-button"
+              >
+                <Text style={[styles.sheetBtnText, { color: "#FFF" }]}>
+                  {journalSaving ? "Saving..." : "Save memory ✨"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -286,7 +372,7 @@ const styles = StyleSheet.create({
   actionSub: { fontSize: 11, color: "#78350F", fontWeight: "600", marginTop: 2 },
   sectionTitle: { fontSize: 18, fontWeight: "700", color: colors.onSurface, marginTop: spacing.xl, marginBottom: spacing.md },
   plantChip: {
-    width: 120, backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg,
+    width: 140, backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg,
     padding: spacing.md, alignItems: "center", borderWidth: 2, borderColor: "transparent",
   },
   plantChipActive: { borderColor: colors.brandPrimary, backgroundColor: colors.brandTertiary },
@@ -294,6 +380,12 @@ const styles = StyleSheet.create({
   chipName: { fontSize: 13, fontWeight: "700", color: colors.onSurface, marginTop: 4 },
   chipStage: { fontSize: 11, color: colors.onSurfaceMuted, marginTop: 2 },
   chipXp: { fontSize: 12, fontWeight: "700", color: colors.brandSecondary, marginTop: 4 },
+  chipNote: {
+    fontSize: 10, color: colors.onSurfaceMuted, fontStyle: "italic",
+    marginTop: 6, textAlign: "center", lineHeight: 13,
+  },
+  chipNoteHint: { fontSize: 10, color: colors.brandPrimary, fontWeight: "700", marginTop: 6 },
+  journalEmoji: { fontSize: 56, alignSelf: "center", marginBottom: 4 },
   modalWrap: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
   sheet: {
