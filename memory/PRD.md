@@ -30,3 +30,8 @@ Tactile / Playful (Personality 4) — cream #FFFCF6, sunshine yellow #F59E0B, em
 ## Integrations
 - Emergent-managed Google Auth (mobile + web).
 - No AI, no external LLM, no push notifications in MVP.
+
+## Tree View update (June 2026)
+- Branches are now PURELY AESTHETIC: no goal tooltips, no tap targets. Branch count still = number of completed goals (capped by stage), but no goal titles shown on the tree.
+- New trunk details: bird holes (dark hollow with bark rim; topmost hole has a little bluebird peeking) spaced along the trunk, and small leafy sprigs sprouting from trunk sides between branches. Branches also got individual tip leaves.
+- `TreeView` prop changed: `goals: {goal_id,title}[]` → `branches: number`.

@@ -1,7 +1,5 @@
-import { useState } from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
-import Svg, { Circle, Line, Ellipse, G, Path } from "react-native-svg";
-import * as Haptics from "expo-haptics";
+import { View } from "react-native";
+import Svg, { Circle, Ellipse, G, Path } from "react-native-svg";
 import { Stage } from "@/src/lib/plant";
 
 export type Season = "spring" | "summer" | "autumn" | "winter";
@@ -64,7 +62,7 @@ const PALETTES: Record<Season, Palette> = {
 type Props = {
   stage: Stage;
   xp: number;
-  goals: { goal_id: string; title: string }[];
+  branches: number;
   width?: number;
   season?: Season;
 };
@@ -149,13 +147,6 @@ function HorizontalBranch({
     L ${startX} ${y + baseT / 2}
     Z
   `;
-  // Small leaf clusters along the branch (no ball at end)
-  const clusters = [0.35, 0.6, 0.82].map((t, i) => {
-    const cx = startX + side * length * t;
-    const cy = y - 4 - i * 1;
-    const r = 12 - i * 2;
-    return { cx, cy, r };
-  });
   return (
     <G>
       {/* Branch shadow */}
@@ -168,22 +159,106 @@ function HorizontalBranch({
         fill={palette.trunkLight}
         opacity={0.6}
       />
-      {/* Leaf clusters ALONG the branch (small, tucked around it) */}
-      {clusters.map((c, i) => (
-        <G key={`cl-${i}`}>
-          {/* Dark under-shadow */}
-          <Circle cx={c.cx} cy={c.cy + 3} r={c.r + 2} fill={palette.leafBase} />
-          {/* Main leaf */}
-          <Circle cx={c.cx} cy={c.cy} r={c.r} fill={palette.leafMain} />
-          <Circle cx={c.cx - side * 3} cy={c.cy - 2} r={c.r * 0.7} fill={palette.leafMain} />
-          <Circle cx={c.cx + side * 4} cy={c.cy - 3} r={c.r * 0.55} fill={palette.leafLight} />
-        </G>
-      ))}
+      {/* Individual leaves along the branch (proper leaf shapes, no balls) */}
+      <Ellipse
+        cx={startX + side * length * 0.4} cy={y - 10} rx={9} ry={4.5} fill={palette.leafMain}
+        transform={`rotate(${side * -35} ${startX + side * length * 0.4} ${y - 10})`}
+      />
+      <Ellipse
+        cx={startX + side * length * 0.55} cy={y + 7} rx={8} ry={4} fill={palette.leafBase}
+        transform={`rotate(${side * 28} ${startX + side * length * 0.55} ${y + 7})`}
+      />
+      <Ellipse
+        cx={startX + side * length * 0.72} cy={y - 9} rx={8.5} ry={4.2} fill={palette.leafLight}
+        transform={`rotate(${side * -25} ${startX + side * length * 0.72} ${y - 9})`}
+      />
+      {/* Individual leaves near the tip */}
+      <Ellipse
+        cx={endX - side * 10} cy={y - 8} rx={9} ry={4.5} fill={palette.leafMain}
+        transform={`rotate(${side * -28} ${endX - side * 10} ${y - 8})`}
+      />
+      <Ellipse
+        cx={endX - side * 2} cy={y + 5} rx={8} ry={4} fill={palette.leafLight}
+        transform={`rotate(${side * 30} ${endX - side * 2} ${y + 5})`}
+      />
+      <Ellipse
+        cx={endX - side * 22} cy={y + 8} rx={7} ry={3.5} fill={palette.leafBase}
+        transform={`rotate(${side * 18} ${endX - side * 22} ${y + 8})`}
+      />
     </G>
   );
 }
 
-export function TreeView({ stage, xp, goals, width = CANVAS_W, season }: Props) {
+// Cozy bird hole in the trunk — dark oval hollow with a bark rim; optionally a little bird peeking out
+function BirdHole({
+  cx, cy, r, palette, withBird,
+}: {
+  cx: number; cy: number; r: number; palette: Palette; withBird?: boolean;
+}) {
+  return (
+    <G>
+      {/* Bark rim */}
+      <Ellipse cx={cx} cy={cy} rx={r * 1.35} ry={r * 1.6} fill={palette.trunkDark} />
+      {/* Hollow */}
+      <Ellipse cx={cx} cy={cy} rx={r} ry={r * 1.25} fill="#2D1606" />
+      <Ellipse cx={cx} cy={cy + r * 0.5} rx={r * 0.68} ry={r * 0.55} fill="#160A02" />
+      {/* Rim highlight arc */}
+      <Path
+        d={`M ${cx - r * 1.15} ${cy - r * 0.55} Q ${cx} ${cy - r * 1.85}, ${cx + r * 1.15} ${cy - r * 0.55}`}
+        stroke={palette.trunkLight} strokeWidth={3.5} fill="none" opacity={0.7} strokeLinecap="round"
+      />
+      {withBird && (
+        <G>
+          {/* Little bluebird peeking out */}
+          <Circle cx={cx} cy={cy + r * 0.2} r={r * 0.58} fill="#60A5FA" />
+          <Ellipse cx={cx - r * 0.12} cy={cy + r * 0.42} rx={r * 0.34} ry={r * 0.3} fill="#BFDBFE" />
+          <Circle cx={cx + r * 0.22} cy={cy} r={r * 0.09} fill="#1F2937" />
+          {/* Beak */}
+          <Path
+            d={`M ${cx + r * 0.52} ${cy + r * 0.12} l ${r * 0.38} ${r * 0.1} l ${-r * 0.34} ${r * 0.2} Z`}
+            fill="#F59E0B"
+          />
+          {/* Wing */}
+          <Ellipse
+            cx={cx - r * 0.28} cy={cy + r * 0.18} rx={r * 0.26} ry={r * 0.16} fill="#3B82F6"
+            transform={`rotate(-25 ${cx - r * 0.28} ${cy + r * 0.18})`}
+          />
+        </G>
+      )}
+    </G>
+  );
+}
+
+// Tiny leafy sprig growing from the side of the trunk
+function TrunkSprig({
+  x, y, side, palette,
+}: {
+  x: number; y: number; side: 1 | -1; palette: Palette;
+}) {
+  const tip = x + side * 28;
+  return (
+    <G>
+      <Path
+        d={`M ${x} ${y} Q ${x + side * 15} ${y - 6}, ${tip} ${y - 12}`}
+        stroke={palette.trunkDark} strokeWidth={4} fill="none" strokeLinecap="round"
+      />
+      <Ellipse
+        cx={tip - side * 6} cy={y - 18} rx={9} ry={5} fill={palette.leafMain}
+        transform={`rotate(${side * -32} ${tip - side * 6} ${y - 18})`}
+      />
+      <Ellipse
+        cx={tip + side * 2} cy={y - 8} rx={8} ry={4.5} fill={palette.leafLight}
+        transform={`rotate(${side * 26} ${tip + side * 2} ${y - 8})`}
+      />
+      <Ellipse
+        cx={tip - side * 14} cy={y - 5} rx={7} ry={4} fill={palette.leafBase}
+        transform={`rotate(${side * 10} ${tip - side * 14} ${y - 5})`}
+      />
+    </G>
+  );
+}
+
+export function TreeView({ stage, xp, branches: branchCount, width = CANVAS_W, season }: Props) {
   const activeSeason = season ?? seasonNow();
   const p = PALETTES[activeSeason];
   const cx = CANVAS_W / 2;
@@ -191,8 +266,7 @@ export function TreeView({ stage, xp, goals, width = CANVAS_W, season }: Props) 
   const canopyR = CANOPY_R_BY_STAGE[stage] * p.canopyScale;
 
   const maxBranches = MAX_BRANCHES_BY_STAGE[stage];
-  const visibleGoals = goals.slice(0, maxBranches);
-  const numBranches = visibleGoals.length;
+  const numBranches = Math.min(Math.max(0, branchCount), maxBranches);
 
   // Grow the canvas taller as branches are added
   const branchZoneStart = CANOPY_ZONE + FIRST_BRANCH_OFFSET; // where first branch lives
@@ -204,10 +278,6 @@ export function TreeView({ stage, xp, goals, width = CANVAS_W, season }: Props) 
   const trunkH = GROUND_Y - trunkTopY;
 
   const finalHeight = Math.round((CANVAS_H / CANVAS_W) * width);
-
-  const [selected, setSelected] = useState<{ id: string; title: string; x: number; y: number } | null>(null);
-
-  const scale = width / CANVAS_W;
 
   // SEED — small mound with sprout leaves
   if (stage === "seed") {
@@ -227,8 +297,8 @@ export function TreeView({ stage, xp, goals, width = CANVAS_W, season }: Props) 
     );
   }
 
-  // Branch positions — alternating sides, thick horizontal
-  const branches = visibleGoals.map((g, i) => {
+  // Branch positions — alternating sides, thick horizontal, purely decorative
+  const branches = Array.from({ length: numBranches }, (_, i) => {
     const side: 1 | -1 = i % 2 === 0 ? -1 : 1;
     const y = branchZoneStart + i * BRANCH_ROW_SPACING;
     const length = 130 + (i % 3) * 12; // slight length variation
@@ -236,9 +306,36 @@ export function TreeView({ stage, xp, goals, width = CANVAS_W, season }: Props) 
     const yFromGround = GROUND_Y - y;
     const trunkHalf = baseW / 2 * (0.65 + 0.35 * (yFromGround / trunkH));
     const startX = cx + side * (trunkHalf - 2);
-    const endX = startX + side * length;
-    return { key: g.goal_id, title: g.title, side, startX, y, endX, length };
+    return { key: `br-${i}`, side, startX, y, length };
   });
+
+  // Trunk half-width at a given y (linear taper from base to top)
+  const topW = baseW * 0.55;
+  const halfWAt = (y: number) => {
+    const t = (GROUND_Y - y) / trunkH; // 0 at ground → 1 at top
+    return (baseW / 2) * (1 - t) + (topW / 2) * t;
+  };
+
+  // Bird holes — spread along the trunk, first one has a little bird peeking
+  const numHoles = Math.max(1, Math.min(5, Math.floor(trunkH / 800)));
+  const holeR = Math.max(9, Math.min(16, baseW * 0.17));
+  const birdHoles = Array.from({ length: numHoles }, (_, i) => {
+    const y = trunkTopY + trunkH * ((i + 0.9) / (numHoles + 1.1));
+    const dx = (i % 3 === 0 ? -1 : i % 3 === 1 ? 1 : 0) * baseW * 0.1;
+    return { key: `hole-${i}`, cx: cx + dx, cy: y, withBird: i === 0 };
+  });
+
+  // Leafy sprigs sprouting from the trunk sides, between branch rows
+  const sprigs: { key: string; x: number; y: number; side: 1 | -1 }[] = [];
+  for (let y = trunkTopY + 150, i = 0; y < GROUND_Y - 130; y += 190, i++) {
+    // Skip if too close to a branch row (keep it uncluttered)
+    const nearBranch = branches.some((b) => Math.abs(b.y - y) < 70);
+    // Skip if too close to a bird hole
+    const nearHole = birdHoles.some((h) => Math.abs(h.cy - y) < 60);
+    if (nearBranch || nearHole) continue;
+    const side: 1 | -1 = i % 2 === 0 ? 1 : -1;
+    sprigs.push({ key: `sprig-${i}`, x: cx + side * (halfWAt(y) - 3), y, side });
+  }
 
   return (
     <View style={{ width, height: finalHeight, alignSelf: "center", position: "relative" }} testID="tree-svg">
@@ -331,7 +428,17 @@ export function TreeView({ stage, xp, goals, width = CANVAS_W, season }: Props) 
           />
         )}
 
-        {/* HORIZONTAL BRANCHES — tapered, no ball at end */}
+        {/* Bird holes in the trunk */}
+        {birdHoles.map((h) => (
+          <BirdHole key={h.key} cx={h.cx} cy={h.cy} r={holeR} palette={p} withBird={h.withBird} />
+        ))}
+
+        {/* Leafy sprigs along the trunk */}
+        {sprigs.map((s) => (
+          <TrunkSprig key={s.key} x={s.x} y={s.y} side={s.side} palette={p} />
+        ))}
+
+        {/* HORIZONTAL BRANCHES — tapered, purely decorative */}
         {branches.map((b) => (
           <HorizontalBranch
             key={b.key}
@@ -342,73 +449,7 @@ export function TreeView({ stage, xp, goals, width = CANVAS_W, season }: Props) 
             palette={p}
           />
         ))}
-
-        {/* Selection ring around active branch */}
-        {selected && (() => {
-          const b = branches.find((x) => x.key === selected.id);
-          if (!b) return null;
-          const midX = b.startX + b.side * b.length * 0.55;
-          return <Circle cx={midX} cy={b.y - 4} r={28} fill="none" stroke={p.fruit} strokeWidth={3} />;
-        })()}
       </Svg>
-
-      {/* Invisible tap targets over each branch */}
-      {branches.map((b) => {
-        const midX = b.startX + b.side * b.length * 0.5;
-        return (
-          <Pressable
-            key={`hit-${b.key}`}
-            onPress={() => {
-              Haptics.selectionAsync();
-              setSelected({ id: b.key, title: b.title, x: midX, y: b.y });
-            }}
-            testID={`branch-hit-${b.key}`}
-            style={{
-              position: "absolute",
-              left: Math.min(b.startX, b.endX) * scale - 8,
-              top: (b.y - 20) * scale,
-              width: (Math.abs(b.endX - b.startX) + 16) * scale,
-              height: 44 * scale,
-            }}
-          />
-        );
-      })}
-
-      {/* Branch tooltip overlay */}
-      {selected && (
-        <Pressable
-          onPress={() => setSelected(null)}
-          testID="branch-tooltip"
-          style={[
-            styles.tooltip,
-            {
-              left: Math.max(4, Math.min(width - 220, selected.x * scale - 100)),
-              top: Math.max(4, selected.y * scale - 60),
-            },
-          ]}
-        >
-          <Text style={styles.tooltipText} numberOfLines={2}>🍃 {selected.title}</Text>
-          <Text style={styles.tooltipHint}>tap to close</Text>
-        </Pressable>
-      )}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  tooltip: {
-    position: "absolute",
-    maxWidth: 200,
-    backgroundColor: "#1F2937",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  tooltipText: { color: "#FFF", fontSize: 13, fontWeight: "700" },
-  tooltipHint: { color: "#9CA3AF", fontSize: 10, marginTop: 2 },
-});

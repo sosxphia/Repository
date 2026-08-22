@@ -215,7 +215,7 @@ export default function Garden() {
           <TreeView
             stage={current?.stage || "seed"}
             xp={current?.xp || 0}
-            goals={completedGoals}
+            branches={completedGoals.length}
             season={activeSeason}
             width={340}
           />
