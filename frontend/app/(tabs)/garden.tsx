@@ -13,6 +13,7 @@ import { colors, spacing, radius } from "@/src/lib/theme";
 import { STAGE_LABEL, Stage, emojiFor } from "@/src/lib/plant";
 import { BloomCelebration } from "@/src/components/BloomCelebration";
 import { TreeView } from "@/src/components/TreeView";
+import { seasonNow, SEASON_LABELS, Season } from "@/src/components/TreeView";
 import { storage } from "@/src/utils/storage";
 
 type Goal = { goal_id: string; title: string; completed: boolean; completed_at?: string | null };
@@ -43,6 +44,27 @@ export default function Garden() {
   const [journalOpen, setJournalOpen] = useState(false);
   const [journalNote, setJournalNote] = useState("");
   const [journalSaving, setJournalSaving] = useState(false);
+  const [seasonOverride, setSeasonOverride] = useState<Season | "auto">("auto");
+
+  useEffect(() => {
+    (async () => {
+      const v = await storage.getItem<string>("season_override", "auto");
+      if (v === "spring" || v === "summer" || v === "autumn" || v === "winter" || v === "auto") {
+        setSeasonOverride(v as any);
+      }
+    })();
+  }, []);
+
+  const cycleSeason = async () => {
+    Haptics.selectionAsync();
+    const order: (Season | "auto")[] = ["auto", "spring", "summer", "autumn", "winter"];
+    const i = order.indexOf(seasonOverride);
+    const next = order[(i + 1) % order.length];
+    setSeasonOverride(next);
+    await storage.setItem("season_override", next);
+  };
+
+  const activeSeason: Season = seasonOverride === "auto" ? seasonNow() : seasonOverride;
 
   const load = useCallback(async () => {
     try {
@@ -157,10 +179,24 @@ export default function Garden() {
           start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
           style={styles.heroCard}
         >
-          <View style={styles.stageBadge}>
-            <Text style={styles.stageBadgeText}>{STAGE_LABEL[current?.stage || "seed"]}</Text>
+          <View style={styles.badgesRow}>
+            <View style={styles.stageBadge}>
+              <Text style={styles.stageBadgeText}>{STAGE_LABEL[current?.stage || "seed"]}</Text>
+            </View>
+            {(() => {
+              const info = SEASON_LABELS[activeSeason];
+              const suffix = seasonOverride === "auto" ? "" : " ·";
+              return (
+                <Pressable onPress={cycleSeason} testID="season-badge" style={[styles.seasonBadge, { backgroundColor: info.chipBg }]}>
+                  <Text style={[styles.seasonBadgeText, { color: info.chipFg }]}>
+                    {info.emoji} {info.label}{suffix}
+                    {seasonOverride === "auto" ? "" : " manual"}
+                  </Text>
+                </Pressable>
+              );
+            })()}
           </View>
-          <TreeView stage={current?.stage || "seed"} xp={current?.xp || 0} goals={completedGoals} size={240} />
+          <TreeView stage={current?.stage || "seed"} xp={current?.xp || 0} goals={completedGoals} size={240} season={activeSeason} />
           <Text style={styles.heroName} testID="current-plant-emoji">{current?.name}</Text>
           <Text style={styles.xpText}>{current?.xp} XP · {completedGoals.length} {completedGoals.length === 1 ? "branch" : "branches"} 🌿</Text>
 
@@ -332,9 +368,12 @@ const styles = StyleSheet.create({
   },
   stageBadge: {
     backgroundColor: colors.brandPrimary, paddingHorizontal: spacing.md, paddingVertical: 6,
-    borderRadius: radius.pill, marginBottom: spacing.md,
+    borderRadius: radius.pill,
   },
   stageBadgeText: { color: colors.onBrandPrimary, fontWeight: "700", fontSize: 12, letterSpacing: 0.5 },
+  badgesRow: { flexDirection: "row", gap: 8, alignItems: "center", marginBottom: spacing.md, flexWrap: "wrap", justifyContent: "center" },
+  seasonBadge: { paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill },
+  seasonBadgeText: { fontSize: 12, fontWeight: "700", letterSpacing: 0.3 },
   heroEmoji: { fontSize: 120, marginVertical: spacing.sm },
   heroName: { fontSize: 22, fontWeight: "700", color: colors.onSurface, marginTop: spacing.sm },
   xpText: { fontSize: 14, color: colors.onSurfaceMuted, marginTop: 4, fontWeight: "600" },
