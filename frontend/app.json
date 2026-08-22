@@ -19,7 +19,8 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.growbygoals.off8vr"
+      "package": "com.company.treeapp",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",

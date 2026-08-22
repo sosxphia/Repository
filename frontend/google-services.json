@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "555710883395",
+    "project_id": "tree-studying",
+    "storage_bucket": "tree-studying.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:555710883395:android:1d5ae884962d18e3d216f6",
+        "android_client_info": {
+          "package_name": "com.company.treeapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD9N_nqHkMHLVbED2g1VQgb9r3YEbwtB3A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
