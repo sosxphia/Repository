@@ -329,6 +329,23 @@ async def _check_and_kill_stale_plant(user):
         except Exception as e:
             logger.warning(f"Push failed (non-blocking): {e}")
 
+@api_router.post("/plants/focus-break")
+async def focus_break_kill(authorization: Optional[str] = Header(None)):
+    """Focus Lock broken: user left the app mid-session for too long — the tree dies."""
+    user = await get_current_user(authorization)
+    plant = await db.plants.find_one(
+        {"user_id": user["user_id"], "is_current": True, "is_dead": {"$ne": True}},
+        {"_id": 0, "name": 1},
+    )
+    res = await db.plants.update_many(
+        {"user_id": user["user_id"], "is_current": True, "is_dead": {"$ne": True}},
+        {"$set": {"is_dead": True, "died_at": now_utc()}},
+    )
+    if res.modified_count == 0:
+        return {"killed": False, "name": plant["name"] if plant else None}
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"streak_days": 0}})
+    return {"killed": True, "name": plant["name"] if plant else "Your tree"}
+
 @api_router.get("/plants")
 async def list_plants(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)

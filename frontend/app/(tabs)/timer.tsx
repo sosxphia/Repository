@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, TextInput } from "react-native";
+import { View, Text, StyleSheet, Pressable, TextInput, AppState, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
+import * as KeepAwake from "expo-keep-awake";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { apiFetch } from "@/src/lib/api";
 import { colors, spacing, radius } from "@/src/lib/theme";
+
+const GRACE_SECONDS = 60;
 
 const PRESETS = [
   { label: "Pomodoro 🍅: 25 mins", minutes: 25 },
@@ -14,21 +18,71 @@ const PRESETS = [
 ];
 
 export default function Timer() {
+  const router = useRouter();
   const [duration, setDuration] = useState(25); // minutes
   const [remaining, setRemaining] = useState(25 * 60); // seconds
   const [running, setRunning] = useState(false);
   const [lastXp, setLastXp] = useState<number | null>(null);
   const [customOpen, setCustomOpen] = useState(false);
   const [customMin, setCustomMin] = useState("");
+  const [deathOpen, setDeathOpen] = useState(false);
+  const [deadName, setDeadName] = useState("Your tree");
+  const [forgiven, setForgiven] = useState(false);
   const intervalRef = useRef<any>(null);
+  const runningRef = useRef(false);
+  const awayAtRef = useRef<number | null>(null);
 
   useEffect(() => {
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      KeepAwake.deactivateKeepAwake().catch(() => {});
+    };
   }, []);
 
-  const handleComplete = async (minutes: number) => {
+  const clearTimer = () => {
+    runningRef.current = false;
     setRunning(false);
     if (intervalRef.current) clearInterval(intervalRef.current);
+    KeepAwake.deactivateKeepAwake().catch(() => {});
+  };
+
+  // Focus Lock: leaving the app for longer than the grace period kills the tree
+  const killTree = async () => {
+    clearTimer();
+    setRemaining(duration * 60);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    try {
+      const res = await apiFetch("/plants/focus-break", { method: "POST" });
+      if (res?.name) setDeadName(res.name);
+    } catch (e) {
+      console.log("focus-break err", e);
+    }
+    setDeathOpen(true);
+  };
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (!runningRef.current) return;
+      if (state === "background" || state === "inactive") {
+        if (awayAtRef.current === null) awayAtRef.current = Date.now();
+        return;
+      }
+      if (state === "active" && awayAtRef.current !== null) {
+        const awaySec = (Date.now() - awayAtRef.current) / 1000;
+        awayAtRef.current = null;
+        if (awaySec > GRACE_SECONDS) {
+          killTree();
+        } else {
+          setForgiven(true);
+          setTimeout(() => setForgiven(false), 6000);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [duration]);
+
+  const handleComplete = async (minutes: number) => {
+    clearTimer();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     try {
       const res = await apiFetch("/focus-sessions", {
@@ -46,10 +100,14 @@ export default function Timer() {
   const start = (minutes: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setLastXp(null);
+    setForgiven(false);
     setCustomOpen(false);
     setDuration(minutes);
     setRemaining(minutes * 60);
     setRunning(true);
+    runningRef.current = true;
+    awayAtRef.current = null;
+    KeepAwake.activateKeepAwakeAsync().catch(() => {});
     if (intervalRef.current) clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => {
       setRemaining((r) => {
@@ -77,8 +135,7 @@ export default function Timer() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const elapsedSec = duration * 60 - remaining;
     const elapsedMin = Math.floor(elapsedSec / 60);
-    setRunning(false);
-    if (intervalRef.current) clearInterval(intervalRef.current);
+    clearTimer();
     if (elapsedMin >= 1) {
       apiFetch("/focus-sessions", {
         method: "POST",
@@ -113,6 +170,23 @@ export default function Timer() {
           <Text style={styles.status}>{running ? "Focusing…" : "Pick a time to start"}</Text>
         </LinearGradient>
       </View>
+
+      {/* Focus Lock warning */}
+      <View style={[styles.lockCard, running && styles.lockCardActive]} testID="focus-lock-banner">
+        <Text style={styles.lockTitle}>
+          {running ? "🔒 Focus Lock is ON" : "🔒 Focus Lock is always on"}
+        </Text>
+        <Text style={styles.lockText}>
+          Leave the app for more than 60 seconds during a session and your tree dies 💀. Quick
+          interruptions like a phone call under a minute are forgiven.
+        </Text>
+      </View>
+
+      {forgiven && (
+        <View style={styles.forgivenBanner} testID="focus-forgiven-banner">
+          <Text style={styles.forgivenText}>Phew! Back within 60s — your tree survived 🌿</Text>
+        </View>
+      )}
 
       {/* Custom first, then presets — tapping a preset starts the timer immediately */}
       {!running && (
@@ -180,6 +254,30 @@ export default function Timer() {
           <Text style={styles.startText}>Stop</Text>
         </Pressable>
       )}
+
+      {/* Tree died — Focus Lock broken */}
+      <Modal transparent visible={deathOpen} animationType="fade" onRequestClose={() => setDeathOpen(false)}>
+        <View style={styles.modalWrap}>
+          <View style={styles.deathCard} testID="focus-lock-death-modal">
+            <Text style={styles.deathEmoji}>💔</Text>
+            <Text style={styles.deathTitle}>{deadName} died</Text>
+            <Text style={styles.deathText}>
+              You left the app for more than 60 seconds while focusing, so Focus Lock was broken.
+              You can revive your tree or replant a fresh seed.
+            </Text>
+            <Pressable
+              onPress={() => { setDeathOpen(false); router.push("/(tabs)/garden"); }}
+              style={styles.deathBtn}
+              testID="focus-lock-death-garden"
+            >
+              <Text style={styles.deathBtnText}>Go to my tree 🌳</Text>
+            </Pressable>
+            <Pressable onPress={() => setDeathOpen(false)} style={styles.deathGhost}>
+              <Text style={styles.deathGhostText}>Dismiss</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -235,4 +333,31 @@ const styles = StyleSheet.create({
     shadowColor: colors.brandSecondary, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
   },
   startText: { color: "#FFF", fontSize: 17, fontWeight: "800" },
+  lockCard: {
+    backgroundColor: "#FEF2F2", borderRadius: radius.lg, borderWidth: 2, borderColor: "#FECACA",
+    padding: spacing.md, marginBottom: spacing.sm,
+  },
+  lockCardActive: { backgroundColor: "#FEE2E2", borderColor: "#FCA5A5" },
+  lockTitle: { fontSize: 14, fontWeight: "800", color: "#B91C1C" },
+  lockText: { fontSize: 12, color: "#7F1D1D", marginTop: 4, lineHeight: 17 },
+  forgivenBanner: {
+    backgroundColor: colors.brandTertiary, borderRadius: radius.pill,
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.sm,
+  },
+  forgivenText: { color: colors.onBrandTertiary, fontWeight: "700", textAlign: "center", fontSize: 13 },
+  modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: spacing.lg },
+  deathCard: {
+    backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg,
+    width: "100%", alignItems: "center",
+  },
+  deathEmoji: { fontSize: 52 },
+  deathTitle: { fontSize: 22, fontWeight: "800", color: colors.onSurface, marginTop: spacing.sm },
+  deathText: { fontSize: 14, color: colors.onSurfaceMuted, textAlign: "center", marginTop: spacing.sm, lineHeight: 20 },
+  deathBtn: {
+    backgroundColor: colors.brandPrimary, borderRadius: radius.pill,
+    paddingVertical: 14, paddingHorizontal: spacing.lg, marginTop: spacing.lg, minHeight: 48, justifyContent: "center",
+  },
+  deathBtnText: { color: colors.onBrandPrimary, fontWeight: "800", fontSize: 16 },
+  deathGhost: { paddingVertical: spacing.md, minHeight: 44, justifyContent: "center" },
+  deathGhostText: { color: colors.onSurfaceMuted, fontWeight: "700" },
 });
