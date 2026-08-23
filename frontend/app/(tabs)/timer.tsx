@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Alert } from "react-native";
+import { View, Text, StyleSheet, Pressable, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
@@ -7,19 +7,20 @@ import { Ionicons } from "@expo/vector-icons";
 import { apiFetch } from "@/src/lib/api";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
-const PRESETS = [15, 25, 45, 60];
+const PRESETS = [
+  { label: "🍅 25m", minutes: 25 },
+  { label: "1 hr", minutes: 60 },
+  { label: "2 hr", minutes: 120 },
+];
 
 export default function Timer() {
   const [duration, setDuration] = useState(25); // minutes
   const [remaining, setRemaining] = useState(25 * 60); // seconds
   const [running, setRunning] = useState(false);
   const [lastXp, setLastXp] = useState<number | null>(null);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customMin, setCustomMin] = useState("");
   const intervalRef = useRef<any>(null);
-  const startedAtRef = useRef<number>(0);
-
-  useEffect(() => {
-    if (!running) setRemaining(duration * 60);
-  }, [duration, running]);
 
   useEffect(() => {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
@@ -38,39 +39,53 @@ export default function Timer() {
     } catch (e) {
       console.log("focus save err", e);
     }
-    setRemaining(duration * 60);
+    setRemaining(minutes * 60);
   };
 
-  const toggle = () => {
-    if (running) {
-      // Pause & optionally save partial (only if >= 1 minute elapsed)
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const elapsedSec = duration * 60 - remaining;
-      const elapsedMin = Math.floor(elapsedSec / 60);
-      setRunning(false);
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (elapsedMin >= 1) {
-        apiFetch("/focus-sessions", {
-          method: "POST",
-          body: JSON.stringify({ duration_minutes: elapsedMin }),
-        }).then((r) => setLastXp(r.xp_earned)).catch(() => {});
-      }
-      setRemaining(duration * 60);
-    } else {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      setLastXp(null);
-      setRunning(true);
-      startedAtRef.current = Date.now();
-      intervalRef.current = setInterval(() => {
-        setRemaining((r) => {
-          if (r <= 1) {
-            handleComplete(duration);
-            return 0;
-          }
-          return r - 1;
-        });
-      }, 1000);
+  // Timer starts the moment a time is chosen
+  const start = (minutes: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setLastXp(null);
+    setCustomOpen(false);
+    setDuration(minutes);
+    setRemaining(minutes * 60);
+    setRunning(true);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => {
+      setRemaining((r) => {
+        if (r <= 1) {
+          handleComplete(minutes);
+          return 0;
+        }
+        return r - 1;
+      });
+    }, 1000);
+  };
+
+  const startCustom = () => {
+    const m = parseInt(customMin, 10);
+    if (!m || m < 1 || m > 480) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
     }
+    setCustomMin("");
+    start(m);
+  };
+
+  const stop = () => {
+    // Stop & save partial (only if >= 1 minute elapsed)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const elapsedSec = duration * 60 - remaining;
+    const elapsedMin = Math.floor(elapsedSec / 60);
+    setRunning(false);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (elapsedMin >= 1) {
+      apiFetch("/focus-sessions", {
+        method: "POST",
+        body: JSON.stringify({ duration_minutes: elapsedMin }),
+      }).then((r) => setLastXp(r.xp_earned)).catch(() => {});
+    }
+    setRemaining(duration * 60);
   };
 
   const mins = Math.floor(remaining / 60).toString().padStart(2, "0");
@@ -95,23 +110,52 @@ export default function Timer() {
           <View style={styles.circleProgressBg}>
             <View style={[styles.circleProgressFill, { width: `${Math.round(pct * 100)}%` }]} />
           </View>
-          <Text style={styles.status}>{running ? "Focusing…" : "Ready when you are"}</Text>
+          <Text style={styles.status}>{running ? "Focusing…" : "Pick a time to start instantly"}</Text>
         </LinearGradient>
       </View>
 
-      {/* Duration presets */}
+      {/* Duration presets — tapping starts the timer immediately */}
       {!running && (
         <View style={styles.presetsRow}>
-          {PRESETS.map((m) => (
+          {PRESETS.map((p) => (
             <Pressable
-              key={m}
-              onPress={() => { Haptics.selectionAsync(); setDuration(m); }}
-              style={[styles.presetPill, duration === m && styles.presetPillActive]}
-              testID={`preset-${m}`}
+              key={p.minutes}
+              onPress={() => start(p.minutes)}
+              style={styles.presetPill}
+              testID={`preset-${p.minutes}`}
             >
-              <Text style={[styles.presetText, duration === m && styles.presetTextActive]}>{m}m</Text>
+              <Text style={styles.presetText}>{p.label}</Text>
             </Pressable>
           ))}
+          <Pressable
+            onPress={() => { Haptics.selectionAsync(); setCustomOpen((v) => !v); }}
+            style={[styles.presetPill, customOpen && styles.presetPillActive]}
+            testID="preset-custom"
+          >
+            <Text style={[styles.presetText, customOpen && styles.presetTextActive]}>Custom</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* Custom minutes input */}
+      {!running && customOpen && (
+        <View style={styles.customRow}>
+          <TextInput
+            value={customMin}
+            onChangeText={setCustomMin}
+            keyboardType="number-pad"
+            placeholder="minutes (1–480)"
+            placeholderTextColor={colors.onSurfaceMuted}
+            style={styles.customInput}
+            maxLength={3}
+            autoFocus
+            onSubmitEditing={startCustom}
+            testID="custom-minutes-input"
+          />
+          <Pressable onPress={startCustom} style={styles.customGo} testID="custom-start-button">
+            <Ionicons name="play" size={16} color="#FFF" />
+            <Text style={styles.customGoText}>Go</Text>
+          </Pressable>
         </View>
       )}
 
@@ -122,18 +166,20 @@ export default function Timer() {
         </View>
       )}
 
-      <Pressable
-        onPress={toggle}
-        style={({ pressed }) => [
-          styles.startBtn,
-          { backgroundColor: running ? colors.error : colors.brandSecondary },
-          pressed && { transform: [{ scale: 0.96 }] },
-        ]}
-        testID="timer-toggle-button"
-      >
-        <Ionicons name={running ? "stop" : "play"} size={22} color="#FFF" />
-        <Text style={styles.startText}>{running ? "Stop" : "Start Focusing"}</Text>
-      </Pressable>
+      {running && (
+        <Pressable
+          onPress={stop}
+          style={({ pressed }) => [
+            styles.startBtn,
+            { backgroundColor: colors.error },
+            pressed && { transform: [{ scale: 0.96 }] },
+          ]}
+          testID="timer-toggle-button"
+        >
+          <Ionicons name="stop" size={22} color="#FFF" />
+          <Text style={styles.startText}>Stop</Text>
+        </Pressable>
+      )}
     </SafeAreaView>
   );
 }
@@ -163,6 +209,19 @@ const styles = StyleSheet.create({
   presetPillActive: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
   presetText: { fontSize: 15, fontWeight: "700", color: colors.onSurface },
   presetTextActive: { color: colors.onBrandPrimary },
+  customRow: { flexDirection: "row", gap: spacing.sm, justifyContent: "center", alignItems: "center", marginBottom: spacing.md },
+  customInput: {
+    backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg, paddingVertical: 12, fontSize: 16, fontWeight: "700",
+    color: colors.onSurface, minWidth: 170, textAlign: "center",
+    borderWidth: 2, borderColor: colors.border,
+  },
+  customGo: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: colors.brandSecondary, paddingHorizontal: spacing.lg, paddingVertical: 12,
+    borderRadius: radius.pill, minHeight: 44, justifyContent: "center",
+  },
+  customGoText: { color: "#FFF", fontSize: 15, fontWeight: "800" },
   xpBanner: {
     flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "center",
     backgroundColor: colors.brandTertiary, paddingHorizontal: spacing.lg, paddingVertical: spacing.md,

@@ -1,0 +1,54 @@
+{
+  "summary": "Verified all requested features end-to-end: focus timer presets (25/60/120/custom), immediate-start behavior (no Start button, Stop shown while running), Custom input validation (0 rejected, 3 starts 03:00), Stop reset, floating scroll-to-bottom-button on garden, welcome-naming modal for fresh users, PATCH /plants/{id} clearing needs_naming, and the emoji tweaks. 31/31 pytest tests pass (26 regression + 5 new welcome-naming). Frontend flows verified via Playwright at mobile viewport 390x844 using seeded session token uitest_token_123 and a freshly-seeded no-plant user (user_welcome_test_A1 / welcome_test_tok_A1, cleaned up post-run).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RN Web shadow props", "issue": "Runtime console warning '\"shadow*\" style props are deprecated. Use \"boxShadow\".' emitted on every page load (RN Web >= 0.19). Cosmetic on web-only, no functional impact. Reference: styles across garden.tsx / timer.tsx / profile.tsx (shadowColor/shadowOffset/shadowOpacity/shadowRadius)."},
+      {"component": "RN Web pointerEvents prop", "issue": "'props.pointerEvents is deprecated. Use style.pointerEvents' — likely coming from Modal / KeyboardAvoidingView usage or a dependency. Non-blocking."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_welcome_naming.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_paypal.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: migrate shadow* style props to boxShadow (or wrap in Platform.select) to silence RN Web deprecation warnings — cosmetic only.",
+    "Optional: audit uses of pointerEvents prop and move to style.pointerEvents."
+  ],
+  "critical_code_review_comments": [
+    "server.py:374-389 PATCH /plants/{id}: when payload.name is provided and non-empty (after .strip()), it correctly sets updates['needs_naming']=False. Empty/whitespace name is treated as no-op — needs_naming stays true (verified by test_patch_empty_name_does_not_clear_flag). Correct.",
+    "server.py:338-355 GET /plants/current auto-creates a plant with needs_naming=true when no current plant exists. Handles the 'fresh user, no plants row' scenario per spec.",
+    "timer.tsx:46-63 start(minutes) mutates duration/remaining/running synchronously and installs a 1s interval — clean lifecycle, cleanup on unmount (useEffect return).",
+    "timer.tsx:65-73 startCustom() validates parseInt with 1<=m<=480 range and triggers error haptic on invalid — good UX.",
+    "timer.tsx:75-89 stop() only POSTs /focus-sessions when elapsedMin >= 1 → no zero-minute noise; resets UI unconditionally.",
+    "garden.tsx:370-379 scroll-to-bottom-button uses scrollRef.current?.scrollToEnd({animated:true}) — verified the internal ScrollView container (overflowY:auto) scrolls from scrollTop 0 to 1659 (its max), bringing the Focus/Goals action tiles into view. Works on web.",
+    "garden.tsx:97 sets welcomeOpen=true when cur.needs_naming — modal shows once, saveWelcomeName PATCHes name (or 'My Tree' on skip) which clears the flag; verified modal never reappears on reload."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_welcome_naming.py (new — 5 tests covering the welcome-naming flow)"
+  ],
+  "success_rate": {
+    "backend": "100% (31/31 pytest)",
+    "frontend": "100% of requested UI flows verified"
+  },
+  "seed_data_creation": "Reused ui-test-user (session uitest_token_123, refreshed expires_at). Seeded a fresh user user_welcome_test_A1 + session welcome_test_tok_A1 with BSON datetimes and NO plants row for the welcome-modal E2E; used it, then torn down. Backend welcome-naming pytest fixture creates+deletes user_TEST_welcome_* per test class.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "For welcome-naming flow reuse /app/backend/tests/test_welcome_naming.py. To reproduce E2E in UI: insert users+user_sessions (BSON datetimes) with NO plants row, then localStorage.setItem('sprout_session_token', '<token>') → reload → GET /api/plants/current auto-creates plant with needs_naming=true → welcome-name-input modal appears. Timer flow: presets 25/60/120/custom, tapping any preset starts immediately (no Start button); Stop=timer-toggle-button. Scroll-to-bottom target on Garden is the internal ScrollView (window.scrollY unchanged) — measure via `document.querySelector('[data-testid=\"scroll-to-bottom-button\"]').closest('div[style*=overflow]')`.scrollTop.",
+  "verified_visual_and_ui": [
+    "Timer: 🍅 25m label on preset-25, 1 hr and 2 hr labels on preset-60/preset-120, initial timer-display=25:00, after preset-25 tap+2.2s display=24:58 (running), Stop button visible, presets hidden, invalid custom=0 does not start, custom=3 starts 03:00 → Stop resets to 03:00",
+    "Garden: reset-plant-button = '+' Ionicons icon, scroll-to-bottom-button visible and scrolls internal ScrollView (0→1659 max), action-focus tile shows '🕥 Focus +2 XP / min'",
+    "Welcome modal: appears on fresh user, save 'Willow' updates plant name and closes modal, reload does NOT re-open modal",
+    "Profile: THIS WEEK card 'Weekly Recap' title has NO calendar emoji, focus-min stat shows 🕥, 60 Min Focus badge renders 🕥, Streak Calendar (August 2026) renders",
+    "Login: '🕥 Focus timer feeds your plant' feature row present"
+  ],
+  "rca_of_issue": "N/A — no bugs found."
+}

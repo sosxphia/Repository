@@ -267,6 +267,7 @@ async def _serialize_plant(p):
         "xp": p.get("xp", 0),
         "is_current": p.get("is_current", False),
         "is_dead": is_dead,
+        "needs_naming": p.get("needs_naming", False),
         "stage": "seed" if is_dead else stage_for_xp(p.get("xp", 0)),
         "progress": stage_progress(0 if is_dead else p.get("xp", 0)),
         "note": p.get("note", ""),
@@ -341,11 +342,12 @@ async def current_plant(authorization: Optional[str] = Header(None)):
     user = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     p = await db.plants.find_one({"user_id": user["user_id"], "is_current": True}, {"_id": 0})
     if not p:
-        # Create one
+        # Create one (new user — needs to pick a name)
         pid = f"plant_{uuid.uuid4().hex[:12]}"
         doc = {
-            "plant_id": pid, "user_id": user["user_id"], "name": "My Plant",
-            "species": "succulent", "xp": 0, "is_current": True,
+            "plant_id": pid, "user_id": user["user_id"], "name": "My Tree",
+            "species": "tree", "xp": 0, "is_current": True,
+            "needs_naming": True,
             "created_at": now_utc(), "bloomed_at": None,
         }
         await db.plants.insert_one(doc)
@@ -377,6 +379,7 @@ async def update_plant(plant_id: str, payload: PlantUpdate, authorization: Optio
         updates["note"] = payload.note.strip()[:200]
     if payload.name is not None and payload.name.strip():
         updates["name"] = payload.name.strip()[:40]
+        updates["needs_naming"] = False
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
     res = await db.plants.update_one({"plant_id": plant_id, "user_id": user["user_id"]}, {"$set": updates})
@@ -390,8 +393,9 @@ async def _add_xp(user_id: str, amount: int):
     if not p:
         pid = f"plant_{uuid.uuid4().hex[:12]}"
         await db.plants.insert_one({
-            "plant_id": pid, "user_id": user_id, "name": "My Plant",
-            "species": "succulent", "xp": 0, "is_current": True,
+            "plant_id": pid, "user_id": user_id, "name": "My Tree",
+            "species": "tree", "xp": 0, "is_current": True,
+            "needs_naming": True,
             "created_at": now_utc(), "bloomed_at": None,
         })
         p = await db.plants.find_one({"plant_id": pid}, {"_id": 0})

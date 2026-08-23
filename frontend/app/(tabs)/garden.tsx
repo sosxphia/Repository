@@ -27,6 +27,7 @@ type Plant = {
   xp: number;
   is_current: boolean;
   is_dead?: boolean;
+  needs_naming?: boolean;
   stage: Stage;
   progress: { stage: Stage; stage_min: number; stage_max: number; in_stage: number; stage_span: number };
   bloomed_at: string | null;
@@ -59,6 +60,10 @@ export default function Garden() {
   const [seasonOverride, setSeasonOverride] = useState<Season | "auto">("auto");
   const [reviving, setReviving] = useState(false);
   const purchaseRef = useRef<{ cancel: () => void } | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [welcomeName, setWelcomeName] = useState("");
+  const [welcomeSaving, setWelcomeSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -89,6 +94,7 @@ export default function Garden() {
       ]);
       setCurrent(cur);
       setStreak(ss);
+      if (cur?.needs_naming) setWelcomeOpen(true);
       // Sort completed goals by completed_at ascending so branches appear in the order they were done
       const done = (goals as Goal[])
         .filter((g) => g.completed)
@@ -155,6 +161,24 @@ export default function Garden() {
     });
   };
 
+  const saveWelcomeName = async (skip = false) => {
+    if (!current) return;
+    const name = skip ? "My Tree" : welcomeName.trim();
+    if (!name) return;
+    setWelcomeSaving(true);
+    try {
+      await apiFetch(`/plants/${current.plant_id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setWelcomeOpen(false);
+      load();
+    } finally {
+      setWelcomeSaving(false);
+    }
+  };
+
   const openJournal = () => {
     if (!current) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -192,6 +216,7 @@ export default function Garden() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
         showsVerticalScrollIndicator={false}
@@ -202,7 +227,7 @@ export default function Garden() {
             <Text style={styles.subhi}>Water it with focus & goals</Text>
           </View>
           <Pressable onPress={openReset} style={styles.resetBtn} testID="reset-plant-button">
-            <Ionicons name="refresh" size={18} color={colors.onBrandPrimary} />
+            <Ionicons name="add" size={22} color={colors.onBrandPrimary} />
           </Pressable>
         </View>
 
@@ -341,6 +366,17 @@ export default function Garden() {
             const canvasHeight = Math.round((CANVAS_H / 360) * 340);
             return <WeatherLayer kind={kind} width={340} height={canvasHeight} />;
           })()}
+          {/* Scroll to the base of the tree */}
+          <Pressable
+            onPress={() => {
+              Haptics.selectionAsync();
+              scrollRef.current?.scrollToEnd({ animated: true });
+            }}
+            style={styles.scrollDownBtn}
+            testID="scroll-to-bottom-button"
+          >
+            <Ionicons name="arrow-down" size={20} color="#FFF" />
+          </Pressable>
         </View>
 
         {/* Memory note editor */}
@@ -359,7 +395,7 @@ export default function Garden() {
         {/* Action tiles */}
         <View style={styles.actionRow}>
           <Pressable style={[styles.actionTile, { backgroundColor: colors.brandPrimary }]} onPress={() => router.push("/(tabs)/timer")} testID="action-focus">
-            <Text style={styles.actionEmoji}>⏱️</Text>
+            <Text style={styles.actionEmoji}>🕥</Text>
             <Text style={styles.actionText}>Focus</Text>
             <Text style={styles.actionSub}>+2 XP / min</Text>
           </Pressable>
@@ -370,6 +406,57 @@ export default function Garden() {
           </Pressable>
         </View>
       </ScrollView>
+
+      {/* Welcome modal — name your first tree */}
+      <Modal transparent visible={welcomeOpen} animationType="slide" onRequestClose={() => setWelcomeOpen(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalWrap}
+        >
+          <Pressable style={styles.backdrop} onPress={() => {}} />
+          <View style={styles.sheet}>
+            <View style={styles.grabber} />
+            <Text style={styles.sheetTitle}>Welcome! Meet your tree 🌱</Text>
+            <Text style={styles.sheetSub}>Every goal and focus session helps it grow. What would you like to call it?</Text>
+            <TextInput
+              value={welcomeName}
+              onChangeText={setWelcomeName}
+              placeholder="e.g. Oakley, Willow, Little Sprout…"
+              placeholderTextColor={colors.onSurfaceMuted}
+              style={styles.input}
+              autoFocus
+              onSubmitEditing={() => saveWelcomeName()}
+              returnKeyType="done"
+              maxLength={30}
+              testID="welcome-name-input"
+            />
+            <View style={styles.sheetRow}>
+              <Pressable
+                onPress={() => saveWelcomeName(true)}
+                style={[styles.sheetBtn, { backgroundColor: colors.surfaceSecondary }]}
+                testID="welcome-skip-button"
+              >
+                <Text style={[styles.sheetBtnText, { color: colors.onSurface }]}>Skip</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => saveWelcomeName()}
+                disabled={welcomeSaving || !welcomeName.trim()}
+                style={({ pressed }) => [
+                  styles.sheetBtn,
+                  { backgroundColor: colors.brandSecondary, flex: 1.4 },
+                  !welcomeName.trim() && { opacity: 0.5 },
+                  pressed && { transform: [{ scale: 0.96 }] },
+                ]}
+                testID="welcome-save-button"
+              >
+                <Text style={[styles.sheetBtnText, { color: "#FFF" }]}>
+                  {welcomeSaving ? "Saving..." : "Name my tree 🌳"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Reset modal — new tree */}
       <Modal transparent visible={resetOpen} animationType="slide" onRequestClose={() => setResetOpen(false)}>
@@ -543,6 +630,12 @@ const styles = StyleSheet.create({
   scrollHint: {
     fontSize: 11, color: colors.onSurfaceMuted, marginTop: 6, fontWeight: "700",
     letterSpacing: 0.5, textTransform: "uppercase",
+  },
+  scrollDownBtn: {
+    position: "absolute", bottom: 14, right: 14,
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: colors.brandPrimary, alignItems: "center", justifyContent: "center",
+    shadowColor: colors.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 5,
   },
   stageBadge: {
     backgroundColor: colors.brandPrimary, paddingHorizontal: spacing.md, paddingVertical: 6,

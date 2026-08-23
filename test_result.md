@@ -122,3 +122,10 @@
 
 ## Push Notifications (June 2026)
 - Emergent managed push integrated per playbook. register-push returns mapped 500 with placeholder key (expected in preview). Kill path verified non-blocking with push failure. App loads on web (guards OK). All playbook self-verification symbols present. Cannot test delivery in preview — needs real build.
+
+## Batch: Timer redesign + onboarding + UI tweaks (June 2026)
+- timer.tsx: presets now 🍅25m/1hr/2hr + Custom (1-480 min input); tapping a preset STARTS timer immediately (no Start button); Stop button only while running (saves partial >=1min).
+- garden.tsx: focus tile emoji 🕥; header new-tree button now "+" icon (testID reset-plant-button); floating scroll-to-bottom button on tree canvas (testID scroll-to-bottom-button) → scrollToEnd; welcome naming modal for new users (testIDs welcome-name-input/welcome-save-button/welcome-skip-button) shown when plant.needs_naming.
+- backend: auto-created plants get needs_naming=true + name "My Tree"/species tree; PATCH rename clears needs_naming; serializer includes needs_naming.
+- profile.tsx/login.tsx: Weekly Recap calendar emoji removed; focus-min emojis → 🕥 (stats, recap cell, share msg, badge, login feature row).
+- needs_retesting: true

@@ -83,7 +83,7 @@ export default function Profile() {
 
   const badges = [
     { key: "streak", label: "3-day Streak", emoji: "🔥", unlocked: (stats?.streak_days ?? 0) >= 3 },
-    { key: "focus60", label: "60 Min Focus", emoji: "⏱️", unlocked: (stats?.total_focus_minutes ?? 0) >= 60 },
+    { key: "focus60", label: "60 Min Focus", emoji: "🕥", unlocked: (stats?.total_focus_minutes ?? 0) >= 60 },
     { key: "tasks10", label: "10 Goals Done", emoji: "✅", unlocked: (stats?.total_tasks_completed ?? 0) >= 10 },
     { key: "bloom", label: "First Bloom", emoji: "🌸", unlocked: (stats?.bloomed_plants ?? 0) >= 1 },
     { key: "garden5", label: "Garden of 5", emoji: "🌷", unlocked: (stats?.total_plants ?? 0) >= 5 },
@@ -127,7 +127,7 @@ export default function Profile() {
                   <View style={styles.recapHeader}>
                     <View>
                       <Text style={styles.recapKicker}>THIS WEEK</Text>
-                      <Text style={styles.recapTitle}>Weekly Recap 🗓️</Text>
+                      <Text style={styles.recapTitle}>Weekly Recap</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={22} color="#FFF" />
                   </View>
@@ -156,7 +156,7 @@ export default function Profile() {
                 <Text style={styles.statLabel}>day streak</Text>
               </View>
               <View style={[styles.statCard, { backgroundColor: "#DBEAFE" }]}>
-                <Text style={styles.statEmoji}>⏱️</Text>
+                <Text style={styles.statEmoji}>🕥</Text>
                 <Text style={styles.statValue}>{stats?.total_focus_minutes ?? 0}</Text>
                 <Text style={styles.statLabel}>focus min</Text>
               </View>
@@ -255,7 +255,7 @@ export default function Profile() {
                 <Text style={styles.recapCellLabel}>daily quests</Text>
               </View>
               <View style={[styles.recapCell, { backgroundColor: "#DBEAFE" }]}>
-                <Text style={styles.recapCellEmoji}>⏱️</Text>
+                <Text style={styles.recapCellEmoji}>🕥</Text>
                 <Text style={styles.recapCellVal}>{recap?.focus_minutes ?? 0}</Text>
                 <Text style={styles.recapCellLabel}>focus minutes</Text>
               </View>
@@ -281,7 +281,7 @@ export default function Profile() {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 try {
                   await Share.share({
-                    message: `This week on SproutGoals 🌷\n✅ ${recap?.goals_completed ?? 0} goals crushed\n⏱️ ${recap?.focus_minutes ?? 0} focus minutes\n🌸 ${recap?.plants_bloomed ?? 0} plants bloomed\n🔥 ${recap?.current_streak ?? 0}-day streak!`,
+                    message: `This week on SproutGoals 🌷\n✅ ${recap?.goals_completed ?? 0} goals crushed\n🕥 ${recap?.focus_minutes ?? 0} focus minutes\n🌸 ${recap?.plants_bloomed ?? 0} plants bloomed\n🔥 ${recap?.current_streak ?? 0}-day streak!`,
                   });
                 } catch {}
               }}

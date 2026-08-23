@@ -40,7 +40,7 @@ export default function Login() {
 
         <View style={styles.featureCards}>
           <View style={styles.featureRow}>
-            <Text style={styles.featureEmoji}>⏱️</Text>
+            <Text style={styles.featureEmoji}>🕥</Text>
             <Text style={styles.featureText}>Focus timer feeds your plant</Text>
           </View>
           <View style={styles.featureRow}>
