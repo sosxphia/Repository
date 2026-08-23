@@ -8,7 +8,7 @@ import { apiFetch } from "@/src/lib/api";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
 const PRESETS = [
-  { label: "Pomodoro: 25m", minutes: 25 },
+  { label: "Pomodoro 🍅: 25 mins", minutes: 25 },
   { label: "1 hr", minutes: 60 },
   { label: "2 hr", minutes: 120 },
 ];
@@ -110,13 +110,42 @@ export default function Timer() {
           <View style={styles.circleProgressBg}>
             <View style={[styles.circleProgressFill, { width: `${Math.round(pct * 100)}%` }]} />
           </View>
-          <Text style={styles.status}>{running ? "Focusing…" : "Pick a time to start instantly"}</Text>
+          <Text style={styles.status}>{running ? "Focusing…" : "Pick a time to start"}</Text>
         </LinearGradient>
       </View>
 
-      {/* Duration presets — tapping starts the timer immediately */}
+      {/* Custom first, then presets — tapping a preset starts the timer immediately */}
       {!running && (
         <View style={styles.presetsRow}>
+          <Pressable
+            onPress={() => { Haptics.selectionAsync(); setCustomOpen((v) => !v); }}
+            style={[styles.presetPill, customOpen && styles.presetPillActive]}
+            testID="preset-custom"
+          >
+            <Text style={[styles.presetText, customOpen && styles.presetTextActive]}>Custom</Text>
+          </Pressable>
+
+          {customOpen && (
+            <View style={styles.customRow}>
+              <TextInput
+                value={customMin}
+                onChangeText={setCustomMin}
+                keyboardType="number-pad"
+                placeholder="minutes (1–480)"
+                placeholderTextColor={colors.onSurfaceMuted}
+                style={styles.customInput}
+                maxLength={3}
+                autoFocus
+                onSubmitEditing={startCustom}
+                testID="custom-minutes-input"
+              />
+              <Pressable onPress={startCustom} style={styles.customGo} testID="custom-start-button">
+                <Ionicons name="play" size={16} color="#FFF" />
+                <Text style={styles.customGoText}>Go</Text>
+              </Pressable>
+            </View>
+          )}
+
           {PRESETS.map((p) => (
             <Pressable
               key={p.minutes}
@@ -127,35 +156,6 @@ export default function Timer() {
               <Text style={styles.presetText}>{p.label}</Text>
             </Pressable>
           ))}
-          <Pressable
-            onPress={() => { Haptics.selectionAsync(); setCustomOpen((v) => !v); }}
-            style={[styles.presetPill, customOpen && styles.presetPillActive]}
-            testID="preset-custom"
-          >
-            <Text style={[styles.presetText, customOpen && styles.presetTextActive]}>Custom</Text>
-          </Pressable>
-        </View>
-      )}
-
-      {/* Custom minutes input */}
-      {!running && customOpen && (
-        <View style={styles.customRow}>
-          <TextInput
-            value={customMin}
-            onChangeText={setCustomMin}
-            keyboardType="number-pad"
-            placeholder="minutes (1–480)"
-            placeholderTextColor={colors.onSurfaceMuted}
-            style={styles.customInput}
-            maxLength={3}
-            autoFocus
-            onSubmitEditing={startCustom}
-            testID="custom-minutes-input"
-          />
-          <Pressable onPress={startCustom} style={styles.customGo} testID="custom-start-button">
-            <Ionicons name="play" size={16} color="#FFF" />
-            <Text style={styles.customGoText}>Go</Text>
-          </Pressable>
         </View>
       )}
 
@@ -210,11 +210,11 @@ const styles = StyleSheet.create({
   presetPillActive: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
   presetText: { fontSize: 15, fontWeight: "700", color: colors.onSurface },
   presetTextActive: { color: colors.onBrandPrimary },
-  customRow: { flexDirection: "row", gap: spacing.sm, justifyContent: "center", alignItems: "center", marginBottom: spacing.md },
+  customRow: { flexDirection: "row", gap: spacing.sm, justifyContent: "center", alignItems: "center" },
   customInput: {
     backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill,
     paddingHorizontal: spacing.lg, paddingVertical: 12, fontSize: 16, fontWeight: "700",
-    color: colors.onSurface, minWidth: 170, textAlign: "center",
+    color: colors.onSurface, flex: 1, textAlign: "center",
     borderWidth: 2, borderColor: colors.border,
   },
   customGo: {
