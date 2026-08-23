@@ -61,6 +61,7 @@ export default function Garden() {
   const [reviving, setReviving] = useState(false);
   const purchaseRef = useRef<{ cancel: () => void } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const [atBottom, setAtBottom] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [welcomeName, setWelcomeName] = useState("");
   const [welcomeSaving, setWelcomeSaving] = useState(false);
@@ -220,6 +221,11 @@ export default function Garden() {
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={64}
+        onScroll={(e) => {
+          const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+          setAtBottom(contentOffset.y + layoutMeasurement.height >= contentSize.height - 80);
+        }}
       >
         <View style={styles.headerRow}>
           <View>
@@ -366,17 +372,6 @@ export default function Garden() {
             const canvasHeight = Math.round((CANVAS_H / 360) * 340);
             return <WeatherLayer kind={kind} width={340} height={canvasHeight} />;
           })()}
-          {/* Scroll to the base of the tree */}
-          <Pressable
-            onPress={() => {
-              Haptics.selectionAsync();
-              scrollRef.current?.scrollToEnd({ animated: true });
-            }}
-            style={styles.scrollDownBtn}
-            testID="scroll-to-bottom-button"
-          >
-            <Ionicons name="arrow-down" size={20} color="#FFF" />
-          </Pressable>
         </View>
 
         {/* Memory note editor */}
@@ -406,6 +401,19 @@ export default function Garden() {
           </Pressable>
         </View>
       </ScrollView>
+
+      {/* Floating scroll button — follows the user while scrolling */}
+      <Pressable
+        onPress={() => {
+          Haptics.selectionAsync();
+          if (atBottom) scrollRef.current?.scrollTo({ y: 0, animated: true });
+          else scrollRef.current?.scrollToEnd({ animated: true });
+        }}
+        style={styles.scrollDownBtn}
+        testID="scroll-to-bottom-button"
+      >
+        <Ionicons name={atBottom ? "arrow-up" : "arrow-down"} size={20} color="#FFF" />
+      </Pressable>
 
       {/* Welcome modal — name your first tree */}
       <Modal transparent visible={welcomeOpen} animationType="slide" onRequestClose={() => setWelcomeOpen(false)}>
@@ -632,8 +640,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5, textTransform: "uppercase",
   },
   scrollDownBtn: {
-    position: "absolute", bottom: 14, right: 14,
-    width: 44, height: 44, borderRadius: 22,
+    position: "absolute", bottom: 24, right: 18,
+    width: 48, height: 48, borderRadius: 24,
     backgroundColor: colors.brandPrimary, alignItems: "center", justifyContent: "center",
     shadowColor: colors.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 5,
   },

@@ -8,7 +8,7 @@ import { apiFetch } from "@/src/lib/api";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
 const PRESETS = [
-  { label: "🍅 25m", minutes: 25 },
+  { label: "Pomodoro: 25m", minutes: 25 },
   { label: "1 hr", minutes: 60 },
   { label: "2 hr", minutes: 120 },
 ];
@@ -189,22 +189,23 @@ const styles = StyleSheet.create({
   headerRow: { marginTop: spacing.md, marginBottom: spacing.lg },
   h1: { fontSize: 28, fontWeight: "700", color: colors.onSurface, letterSpacing: -0.5 },
   subtitle: { fontSize: 13, color: colors.onSurfaceMuted, marginTop: 2 },
-  circleWrap: { alignItems: "center", justifyContent: "center", marginVertical: spacing.lg },
+  circleWrap: { alignItems: "center", justifyContent: "center", marginVertical: spacing.sm },
   circle: {
-    width: 300, height: 300, borderRadius: 150, alignItems: "center", justifyContent: "center",
-    borderWidth: 6, borderColor: "#FFF", padding: spacing.lg,
+    width: 230, height: 230, borderRadius: 115, alignItems: "center", justifyContent: "center",
+    borderWidth: 6, borderColor: "#FFF", padding: spacing.md,
     shadowColor: colors.shadow, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 1, shadowRadius: 20, elevation: 6,
   },
-  plantEmoji: { fontSize: 60, marginBottom: 4 },
-  timeText: { fontSize: 56, fontWeight: "800", color: colors.onSurface, letterSpacing: -1 },
+  plantEmoji: { fontSize: 40, marginBottom: 2 },
+  timeText: { fontSize: 46, fontWeight: "800", color: colors.onSurface, letterSpacing: -1 },
   circleProgressBg: { width: "80%", height: 8, backgroundColor: "rgba(255,255,255,0.7)", borderRadius: radius.pill, marginTop: spacing.md, overflow: "hidden" },
   circleProgressFill: { height: "100%", backgroundColor: colors.brandSecondary, borderRadius: radius.pill },
   status: { fontSize: 13, color: colors.onSurfaceMuted, marginTop: spacing.sm, fontWeight: "600" },
-  presetsRow: { flexDirection: "row", gap: spacing.sm, justifyContent: "center", marginVertical: spacing.lg },
+  presetsRow: { flexDirection: "column", gap: spacing.sm, marginVertical: spacing.lg },
   presetPill: {
-    paddingHorizontal: spacing.lg, paddingVertical: 12,
+    paddingHorizontal: spacing.lg, paddingVertical: 16,
     borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary,
-    borderWidth: 2, borderColor: "transparent", minWidth: 64, alignItems: "center",
+    borderWidth: 2, borderColor: "transparent", width: "100%", alignItems: "center",
+    justifyContent: "center", minHeight: 52,
   },
   presetPillActive: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
   presetText: { fontSize: 15, fontWeight: "700", color: colors.onSurface },
