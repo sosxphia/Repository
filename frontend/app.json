@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.growbygoals.off8vr",
+      "bundleIdentifier": "com.sproutly.study",
       "usesAppleSignIn": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Scan a friend's QR code to add them"
@@ -22,7 +22,7 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.company.treeapp",
+      "package": "com.sproutly.study",
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA"

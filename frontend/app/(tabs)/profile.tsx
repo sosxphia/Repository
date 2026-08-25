@@ -47,6 +47,8 @@ export default function Profile() {
   const [settings, setSettings] = useState({ notifications_enabled: true, focus_lock_enabled: true, strict_lock_enabled: true });
   const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [freezeClaimable, setFreezeClaimable] = useState(true);
 
   const saveSetting = async (patch: { notifications_enabled?: boolean; focus_lock_enabled?: boolean; strict_lock_enabled?: boolean }) => {
@@ -57,6 +59,21 @@ export default function Profile() {
       setSettings(res);
     } catch (e) {
       console.log("settings err", e);
+    }
+  };
+
+  const deleteAccount = async () => {
+    setDeleting(true);
+    try {
+      await apiFetch("/account", { method: "DELETE" });
+      setDeleteOpen(false);
+      setSettingsOpen(false);
+      signOut();
+    } catch (e: any) {
+      console.log("delete account err", e);
+      Alert.alert("Couldn't delete account", e?.message || "Please try again in a moment.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -368,6 +385,18 @@ export default function Profile() {
               </Pressable>
             </View>
 
+            <Pressable
+              onPress={() => { Haptics.selectionAsync(); setSettingsOpen(false); setDeleteOpen(true); }}
+              style={[styles.settingRow, styles.settingRowBorder]}
+              testID="delete-account-row"
+            >
+              <View style={styles.settingLabelWrap}>
+                <Text style={[styles.settingLabel, { color: colors.error }]}>Delete my account</Text>
+                <Text style={styles.settingSub}>Permanently erase your tree, goals and friends</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceMuted} />
+            </Pressable>
+
             {settings.focus_lock_enabled && (
               <View style={styles.settingWarn} testID="focus-lock-warning">
                 <Text style={styles.settingWarnText}>
@@ -376,6 +405,35 @@ export default function Profile() {
                 </Text>
               </View>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete account confirmation */}
+      <Modal transparent visible={deleteOpen} animationType="fade" onRequestClose={() => setDeleteOpen(false)}>
+        <View style={styles.confirmWrap}>
+          <View style={styles.confirmCard} testID="delete-account-modal">
+            <Text style={styles.confirmEmoji}>🗑️</Text>
+            <Text style={styles.confirmTitle}>Delete your account?</Text>
+            <Text style={styles.confirmText}>
+              This permanently erases your tree, goals, focus history, streak and friends. It cannot
+              be undone.
+            </Text>
+            <Pressable
+              onPress={deleteAccount}
+              style={styles.confirmBtn}
+              disabled={deleting}
+              testID="delete-account-confirm"
+            >
+              {deleting ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text style={styles.confirmBtnText}>Delete everything</Text>
+              )}
+            </Pressable>
+            <Pressable onPress={() => setDeleteOpen(false)} style={styles.confirmGhost} testID="delete-account-cancel">
+              <Text style={styles.confirmGhostText}>Keep my account</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>

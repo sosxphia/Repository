@@ -1,0 +1,32 @@
+{
+  "summary": "Verified bundle-id rename to com.sproutly.study did NOT break anything. Backend: 17/17 pytest cases pass (test_iteration_21.py). Auth surface OK — /api/auth/me returns ui-test-user for the seeded session; /api/auth/apple rejects 'garbage.jwt.token' with 401 'Invalid Apple identity token' and rejects empty body with 422. app.json is valid JSON with name=Sproutly, slug=sproutly, scheme=sproutly, ios.bundleIdentifier=com.sproutly.study, android.package=com.sproutly.study. NEW DELETE /api/account: returns 401 without auth; with a throwaway seeded user (session, plant, goal, focus_session, daily_quest, friend link BOTH directions, friend_requests sent+received, 2 user_sessions) returns {\"deleted\":true} and wipes every listed collection — verified via direct MongoDB counts (0 rows in users/plants/goals/focus_sessions/daily_quests/user_sessions/friends[user_id or friend_id]/friend_requests[from or to]). The session token stops working (401) after deletion. Friends batching regression: sent a fresh friend request between the two seeded users (had to temporarily unlink), then GET /api/friends/requests returned outgoing[{user_id:friend-test-user,name:Ferny}] for UI Tester and incoming[{user_id:ui-test-user,name:UI Tester}] for Ferny — names batched correctly. Friend link between the two seeded users re-established after test. Regression pass: /api/settings GET+PATCH, /api/focus-sessions/today, /api/plants/current, /api/streak-freezes/status, goals CRUD (POST→GET list→DELETE), /api/plants/focus-break all return expected shapes. Frontend (mobile 390x844 web preview, uitest_token_123): app loads, all 5 tabs render (Tree/Goals/Focus/Friends/Profile). Dead-tree renders with dead-tree-title 'Oakley II withered away…', revive-button, replant-button all present and above the fold. Profile > cog opens settings sheet with delete-account-row (label 'Delete my account', destructive subtext). Tapping it opens delete-account-modal containing delete-account-confirm ('Delete everything') and delete-account-cancel ('Keep my account'). Tapped CANCEL — modal closes, and a follow-up fetch to /api/auth/me with Bearer uitest_token_123 still returns 200 for ui-test-user (account preserved as instructed). Friends tab renders QR card, friend code JPXDY8, 'Scan their QR code' + 'Enter code' + Send inputs, and Leaderboard listing UI Tester (you) 264 XP and Ferny 90 XP. Cleanup completed: plant_f950c13f4790.is_dead reset to false; no throwaway users remain; the two seeded users are re-linked as friends; no pending requests between them. No React Native red screen. No deprecated packages found in scope of this iteration.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration_21.py",
+    "/app/test_reports/pytest/iteration_21_results.xml",
+    "/app/test_reports/iter21_garden.png",
+    "/app/test_reports/iter21_profile.png",
+    "/app/test_reports/iter21_delete_modal.png",
+    "/app/test_reports/iter21_friends.png"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "DELETE /api/account (server.py:729-745) covers all user-owned collections listed in the request including friends BOTH directions and friend_requests sent+received. Also wipes push_log (a small bonus). All wipes are unconditional after get_current_user succeeds, so a 401 short-circuits cleanly.",
+    "GET /api/friends/requests (server.py:843-868) now performs a single db.users.find({user_id:{$in:[...]}}) name lookup — batched as intended. Empty-id guard uses `len(ids) or 1` on the to_list limit to avoid a to_list(0) edge case.",
+    "backend/.env APPLE_AUDIENCES='com.sproutly.study,host.exp.Exponent' aligns with the new iOS bundle identifier; existing sessions still validate because the seeded session_token path doesn't re-check audience.",
+    "frontend/app.json is valid JSON; ios.bundleIdentifier and android.package both updated to com.sproutly.study; expo-apple-authentication plugin still declared. No react-native-purchases plugin entry — confirmed left out as noted in the handoff."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% for tested flows"},
+  "seed_data_creation": "test_iteration_21.py creates and then cleans up its own throwaway user + friend-of-throwaway plus their plant/goal/focus_session/daily_quest/friends/friend_requests/user_sessions. No leftover rows after the run (verified via mongosh counts).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Auth via localStorage['sprout_session_token']='uitest_token_123' (ui-test-user) or 'friendtest_token_123' (friend-test-user). Bundle id is now com.sproutly.study — APPLE_AUDIENCES already updated. DELETE /api/account is destructive and unconditional — do NOT run it against ui-test-user or friend-test-user; always create a throwaway user first (see test_iteration_21.py TestDeleteAccount for the pattern). Profile delete-account modal wiring is verified but delete-account-confirm was intentionally NOT tapped for ui-test-user. Friends tab does NOT expose testIDs friends-qr-card / friends-requests / friends-leaderboard — verify visually or by text (QR image, friend code, 'Leaderboard'). A 1-minute custom focus session end-to-end (start→complete→Session Recap card) was NOT walked through the UI this iteration to save time; backend /api/focus-sessions/today and /api/plants/focus-break both respond correctly.",
+  "rca_of_issue": ""
+}

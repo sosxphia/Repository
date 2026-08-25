@@ -726,6 +726,24 @@ async def update_settings(payload: SettingsUpdate, authorization: Optional[str] 
         "strict_lock_enabled": bool(fresh.get("strict_lock_enabled", True)),
     }
 
+@api_router.delete("/account")
+async def delete_account(authorization: Optional[str] = Header(None)):
+    """Permanently delete the signed-in account and all of its data (App Store requirement)."""
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    await db.plants.delete_many({"user_id": uid})
+    await db.goals.delete_many({"user_id": uid})
+    await db.focus_sessions.delete_many({"user_id": uid})
+    await db.daily_quests.delete_many({"user_id": uid})
+    await db.push_log.delete_many({"user_id": uid})
+    await db.friends.delete_many({"user_id": uid})
+    await db.friends.delete_many({"friend_id": uid})
+    await db.friend_requests.delete_many({"from_user_id": uid})
+    await db.friend_requests.delete_many({"to_user_id": uid})
+    await db.user_sessions.delete_many({"user_id": uid})
+    await db.users.delete_one({"user_id": uid})
+    return {"deleted": True}
+
 # ---------- Friends ----------
 FRIEND_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -832,16 +850,19 @@ async def list_friend_requests(authorization: Optional[str] = Header(None)):
         {"from_user_id": user["user_id"], "status": "pending"}, {"_id": 0}
     ).sort("created_at", -1).to_list(100)
 
-    async def _name(uid: str) -> str:
-        u = await db.users.find_one({"user_id": uid}, {"_id": 0, "name": 1})
-        return (u or {}).get("name") or "Friend"
+    # Batch-load names in one query instead of one lookup per row
+    ids = {r["from_user_id"] for r in incoming_rows} | {r["to_user_id"] for r in outgoing_rows}
+    name_rows = await db.users.find(
+        {"user_id": {"$in": list(ids)}}, {"_id": 0, "user_id": 1, "name": 1}
+    ).to_list(len(ids) or 1)
+    names = {r["user_id"]: (r.get("name") or "Friend") for r in name_rows}
 
     incoming = [
-        {"request_id": r["request_id"], "user_id": r["from_user_id"], "name": await _name(r["from_user_id"])}
+        {"request_id": r["request_id"], "user_id": r["from_user_id"], "name": names.get(r["from_user_id"], "Friend")}
         for r in incoming_rows
     ]
     outgoing = [
-        {"request_id": r["request_id"], "user_id": r["to_user_id"], "name": await _name(r["to_user_id"])}
+        {"request_id": r["request_id"], "user_id": r["to_user_id"], "name": names.get(r["to_user_id"], "Friend")}
         for r in outgoing_rows
     ]
     return {"incoming": incoming, "outgoing": outgoing}
