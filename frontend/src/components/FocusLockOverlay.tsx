@@ -35,8 +35,8 @@ export function FocusLockOverlay({ visible, mins, secs, pct, minutes, onGiveUp }
           </View>
 
           <Text style={styles.hint}>
-            Stay in the app. Leaving for more than 60 seconds kills your tree — quick calls are
-            forgiven.
+            You can lock your screen — the timer keeps running. Opening another app kills your
+            tree, and quick interruptions under a minute are forgiven.
           </Text>
           {Platform.OS === "ios" && (
             <Text style={styles.hintSmall}>

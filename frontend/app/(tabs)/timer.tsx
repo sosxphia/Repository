@@ -8,6 +8,9 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiFetch } from "@/src/lib/api";
 import { FocusLockOverlay } from "@/src/components/FocusLockOverlay";
+import { SessionRecap } from "@/src/components/SessionRecap";
+import { startSessionNotifications, stopSessionNotifications } from "@/src/lib/sessionNotifications";
+import { isScreenLocked } from "@/src/lib/screenLock";
 import { GuidedAccessSheet } from "@/src/components/GuidedAccessSheet";
 import { colors, spacing, radius } from "@/src/lib/theme";
 import {
@@ -60,6 +63,9 @@ export default function Timer() {
   const [lockedOpen, setLockedOpen] = useState(false);
   const [guideMinutes, setGuideMinutes] = useState<number | null>(null);
   const [guideHidden, setGuideHidden] = useState(false);
+  const [recap, setRecap] = useState<{ minutes: number; xp: number; streak: number; today: number; stage?: string | null } | null>(null);
+  const endAtRef = useRef<number | null>(null);
+  const lockedAwayRef = useRef(false);
 
   useEffect(() => {
     AsyncStorage.getItem(GUIDE_HIDDEN_KEY).then((v) => setGuideHidden(v === "1")).catch(() => {});
@@ -94,8 +100,10 @@ export default function Timer() {
     runningRef.current = false;
     setRunning(false);
     setLockedOpen(false);
+    endAtRef.current = null;
     if (intervalRef.current) clearInterval(intervalRef.current);
     KeepAwake.deactivateKeepAwake().catch(() => {});
+    stopSessionNotifications();
   };
 
   // Focus Lock: leaving the app for longer than the grace period kills the tree
@@ -116,20 +124,38 @@ export default function Timer() {
   };
 
   useEffect(() => {
-    const sub = AppState.addEventListener("change", (state) => {
-      if (!runningRef.current || !lockEnabledRef.current) return;
+    const sub = AppState.addEventListener("change", async (state) => {
+      if (!runningRef.current) return;
       if (state === "background" || state === "inactive") {
-        if (awayAtRef.current === null) awayAtRef.current = Date.now();
+        if (awayAtRef.current === null) {
+          awayAtRef.current = Date.now();
+          // A locked screen is fine — switching to another app is not
+          lockedAwayRef.current = (await isScreenLocked()) === true;
+        }
         return;
       }
-      if (state === "active" && awayAtRef.current !== null) {
+      if (state === "active") {
+        // The timer keeps running on wall-clock time even while backgrounded
+        const endAt = endAtRef.current;
+        if (endAt !== null && Date.now() >= endAt) {
+          const finished = duration;
+          awayAtRef.current = null;
+          lockedAwayRef.current = false;
+          handleComplete(finished);
+          return;
+        }
+        if (endAt !== null) setRemaining(Math.max(1, Math.ceil((endAt - Date.now()) / 1000)));
+        if (awayAtRef.current === null) return;
         const awaySec = (Date.now() - awayAtRef.current) / 1000;
+        const wasScreenOff = lockedAwayRef.current;
         awayAtRef.current = null;
-        if (awaySec > GRACE_SECONDS) {
-          killTree();
-        } else {
+        lockedAwayRef.current = false;
+        if (!lockEnabledRef.current) return;
+        if (wasScreenOff || awaySec <= GRACE_SECONDS) {
           setForgiven(true);
           setTimeout(() => setForgiven(false), 6000);
+        } else {
+          killTree();
         }
       }
     });
@@ -145,7 +171,18 @@ export default function Timer() {
         body: JSON.stringify({ duration_minutes: minutes }),
       });
       setLastXp(res.xp_earned);
-      loadToday();
+      const fresh = await apiFetch("/focus-sessions/today").catch(() => null);
+      if (fresh) setToday(fresh);
+      const plant = await apiFetch("/plants/current").catch(() => null);
+      setTimeout(() => {
+        setRecap({
+          minutes,
+          xp: res.xp_earned,
+          streak: res.focus_lock_streak ?? fresh?.focus_lock_streak ?? 0,
+          today: fresh?.total_minutes ?? minutes,
+          stage: plant?.stage ?? null,
+        });
+      }, Platform.OS === "ios" ? 550 : 120);
     } catch (e) {
       console.log("focus save err", e);
     }
@@ -162,16 +199,20 @@ export default function Timer() {
     setRunning(true);
     runningRef.current = true;
     awayAtRef.current = null;
+    lockedAwayRef.current = false;
+    const endAt = Date.now() + minutes * 60 * 1000;
+    endAtRef.current = endAt;
     KeepAwake.activateKeepAwakeAsync().catch(() => {});
+    startSessionNotifications(minutes, endAt);
     if (intervalRef.current) clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => {
-      setRemaining((r) => {
-        if (r <= 1) {
-          handleComplete(minutes);
-          return 0;
-        }
-        return r - 1;
-      });
+      const left = Math.ceil(((endAtRef.current ?? 0) - Date.now()) / 1000);
+      if (left <= 0) {
+        handleComplete(minutes);
+        setRemaining(0);
+        return;
+      }
+      setRemaining(left);
     }, 1000);
     if (lockEnabledRef.current && strictLock) setLockedOpen(true);
   };
@@ -273,7 +314,7 @@ export default function Timer() {
         <Text style={[styles.lockText, !lockEnabled && styles.lockTextOff]}>
           {!lockEnabled
             ? "You can leave the app during a session. Turn Focus Lock back on in Profile → Settings."
-            : "Leave the app for more than 60 seconds during a session and your tree will die. Quick interruptions under a minute are forgiven."}
+            : "The timer keeps running with your screen off — but opening another app kills your tree. Quick interruptions under a minute are forgiven."}
         </Text>
       </View>
 
@@ -384,6 +425,17 @@ export default function Timer() {
       </View>
       </ScrollView>
     </KeyboardAvoidingView>
+
+      {/* Celebration after a finished session */}
+      <SessionRecap
+        visible={recap !== null}
+        minutes={recap?.minutes ?? 0}
+        xp={recap?.xp ?? 0}
+        streak={recap?.streak ?? 0}
+        totalMinutesToday={recap?.today ?? 0}
+        stage={recap?.stage}
+        onClose={() => setRecap(null)}
+      />
 
       {/* Locked full-screen focus mode */}
       <FocusLockOverlay
