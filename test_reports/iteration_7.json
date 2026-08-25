@@ -1,0 +1,52 @@
+{
+  "summary": "Frontend retest of the new Timer UI. Streak card + history card + ScrollView are now correctly present and render as expected (initial empty state passes 3/3). ScrollView wraps the body (scrollHeight 804 > clientHeight 698). HOWEVER a new HIGH-priority regression was found: after a session auto-completes, the streak card and history card DO NOT REFRESH. Backend correctly stores the session (session_id fs_255ec16a5d00, xp=2) and increments focus_lock_streak from 0 to 1 (verified via mongosh), and the XP banner (+2 XP) does show — but the UI still displays 🔥 0 / '0 sessions in a row' / empty state 'No focus sessions yet today'. Root cause: `handleComplete()` in /app/frontend/app/(tabs)/timer.tsx (lines 98-111) never calls `loadToday()` after the POST /api/focus-sessions succeeds. Compare with `stop()` (line 157) and `killTree()` (line 74) which both call `loadToday()`. Stop-flow and preset/custom input still work correctly. No changes were made to timer.tsx per E1 instructions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Timer — handleComplete refresh",
+        "issue": "After a normal (timer-hits-00:00) session completion, the Focus Lock streak card and Today's sessions card do not update. Backend persists the session and increments focus_lock_streak correctly (verified in DB), and +2 XP banner appears, but focus-streak-card still shows 🔥 0 and focus-history-card still shows the 'No focus sessions yet today' empty state until the screen is reloaded. Fix: add `loadToday();` immediately after `setLastXp(res.xp_earned);` in handleComplete (timer.tsx:106). The same pattern is already present in stop() (line 157) and killTree() (line 74).",
+        "testID": "focus-streak-card, focus-history-card, focus-history-row",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Complete 1-min custom session → history + streak update",
+        "issue": "Data pipeline works end-to-end on the backend (POST returns xp_earned=2, DB row exists, user.focus_lock_streak=1 after test) but the frontend does not re-fetch /focus-sessions/today after handleComplete, so the UI is stale until user navigates away and back. Same code path DOES work when the user manually taps Stop (verified indirectly — stop() calls loadToday()).",
+        "affected_testIDs": ["focus-streak-card", "focus-history-card", "focus-history-row"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RN Web shadow* props", "issue": "Pre-existing warning '\"shadow*\" style props are deprecated. Use \"boxShadow\".' Cosmetic on web only. Reference: /app/frontend/app/(tabs)/timer.tsx circle & startBtn styles."},
+      {"component": "RN Web pointerEvents", "issue": "Pre-existing warning 'props.pointerEvents is deprecated. Use style.pointerEvents.' Non-blocking, from Modal usage."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_focus_history.py (from iter 6 — not re-run this iteration; frontend-only retest)"
+  ],
+  "action_items": [
+    "MAIN AGENT: In /app/frontend/app/(tabs)/timer.tsx, add `loadToday();` inside handleComplete right after `setLastXp(res.xp_earned);` (line 106). This is the sole missing call — stop() and killTree() already refresh correctly.",
+    "OPTIONAL: Consider also calling loadToday() inside the catch block so a failed POST still tries to reconcile — non-blocking."
+  ],
+  "critical_code_review_comments": [
+    "timer.tsx:98-111 handleComplete() does NOT call loadToday() after successful POST → UI stays stale. stop() (line 157) and killTree() (line 74) DO call it. Copy-paste of the same one-liner needed.",
+    "timer.tsx:174-314 ScrollView wraps circleWrap through historyCard correctly; contentContainerStyle={styles.body} with paddingBottom: spacing.xxl gives good bottom clearance above the tab bar.",
+    "timer.tsx:278-288 streakCard reads today?.focus_lock_streak ?? 0 and best ?? 0 with correct singular/plural ('1 session in a row' vs 'N sessions in a row').",
+    "timer.tsx:291-313 historyCard shows total_minutes · +total_xp in header only when sessions.length > 0; empty state text matches PRD copy; each row shows locale time / duration_minutes / +xp_earned XP. Keys use session_id (safe against reorder)."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "not re-tested (frontend-only iteration per E1)",
+    "frontend": "80% — initial render of streak card (empty), history card (empty state), ScrollView scrollability, running-state Stop button, custom input, and preset rendering all pass. Post-completion auto-refresh of streak + history FAILS due to missing loadToday() call in handleComplete."
+  },
+  "seed_data_creation": "Started one 1-min custom session on ui-test-user via the UI (fs_255ec16a5d00, xp=2). Cleaned up: deleted that focus_sessions row and reset users.ui-test-user.focus_lock_streak from 1 back to 0 (focus_lock_best left at 1 — historical high, correct). Verified plant_f950c13f4790 is_dead:false, is_current:true (Oakley II) at end of run.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "One-line fix: add `loadToday();` after setLastXp in handleComplete (timer.tsx line 106). To re-verify: (1) login uitest_token_123 (set on origin AFTER waiting for login-screen visible, then reload with wait_for_url '/garden'); (2) go to /timer; (3) verify empty state (🔥 0, 'No focus sessions yet today'); (4) preset-custom → 1 → custom-start-button; (5) wait 66s + 3s; (6) assert focus-history-row count >=1 with '1 min' and 'XP' in text, streak card contains '1 session in a row'. Clean up: delete short focus_sessions for ui-test-user today and roll back focus_lock_streak accordingly. AUTH GOTCHA: on first goto '/', AuthContext calls /auth/me → 401 → clearToken(); therefore you MUST wait for login-screen visible BEFORE setting the token, then reload; setting token before the initial clear will race and lose the token.",
+  "rca_of_issue": "handleComplete (timer.tsx:98-111) is the only session-lifecycle handler that does NOT call loadToday() after mutating server state. When the 1-minute custom timer finishes, the interval fires handleComplete(minutes) which POSTs /api/focus-sessions and stores xp_earned in local state (setLastXp), but never refreshes the `today` state that feeds the streak & history cards. Because loadToday only runs on mount, in stop(), and in killTree(), the natural completion path leaves the UI stale. Reproduction is deterministic: start any preset or custom session, let it run to 00:00, observe that +XP banner appears but streak stays at 🔥 0 and history stays empty. Mitigation: single-line fix — insert `loadToday();` in handleComplete right after setLastXp."
+}

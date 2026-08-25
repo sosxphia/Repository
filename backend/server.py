@@ -4,10 +4,12 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
+from pymongo import ReturnDocument
 import asyncio
 import os
 import logging
 import uuid
+import secrets
 import httpx
 import jwt
 import stripe
@@ -342,8 +344,12 @@ async def focus_break_kill(authorization: Optional[str] = Header(None)):
         {"$set": {"is_dead": True, "died_at": now_utc()}},
     )
     if res.modified_count == 0:
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"focus_lock_streak": 0}})
         return {"killed": False, "name": plant["name"] if plant else None}
-    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"streak_days": 0}})
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"streak_days": 0, "focus_lock_streak": 0}},
+    )
     return {"killed": True, "name": plant["name"] if plant else "Your tree"}
 
 @api_router.get("/plants")
@@ -608,7 +614,227 @@ async def create_focus_session(payload: FocusSessionCreate, authorization: Optio
     await db.focus_sessions.insert_one(doc)
     await _add_xp(user["user_id"], xp)
     await _update_activity(user["user_id"], focus_minutes=minutes)
-    return {"ok": True, "xp_earned": xp, "duration_minutes": minutes}
+    # Focus Lock streak: sessions finished in a row without breaking the lock
+    res = await db.users.find_one_and_update(
+        {"user_id": user["user_id"]},
+        {"$inc": {"focus_lock_streak": 1}},
+        return_document=ReturnDocument.AFTER,
+        projection={"_id": 0, "focus_lock_streak": 1, "focus_lock_best": 1},
+    )
+    streak = int((res or {}).get("focus_lock_streak", 1))
+    if streak > int((res or {}).get("focus_lock_best", 0)):
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"focus_lock_best": streak}})
+    return {"ok": True, "xp_earned": xp, "duration_minutes": minutes, "focus_lock_streak": streak}
+
+@api_router.get("/focus-sessions/today")
+async def focus_sessions_today(authorization: Optional[str] = Header(None)):
+    """Today's focus sessions + Focus Lock streak."""
+    user = await get_current_user(authorization)
+    start = now_utc().replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = await db.focus_sessions.find(
+        {"user_id": user["user_id"], "created_at": {"$gte": start}},
+        {"_id": 0, "session_id": 1, "duration_minutes": 1, "xp_earned": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(100)
+    sessions = [
+        {
+            "session_id": r["session_id"],
+            "duration_minutes": r.get("duration_minutes", 0),
+            "xp_earned": r.get("xp_earned", 0),
+            "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+        }
+        for r in rows
+    ]
+    return {
+        "sessions": sessions,
+        "total_minutes": sum(s["duration_minutes"] for s in sessions),
+        "total_xp": sum(s["xp_earned"] for s in sessions),
+        "focus_lock_streak": int(user.get("focus_lock_streak", 0)),
+        "focus_lock_best": int(user.get("focus_lock_best", 0)),
+    }
+
+# ---------- Friends ----------
+FRIEND_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+class FriendRequestCreate(BaseModel):
+    code: str
+
+async def _ensure_friend_code(user) -> str:
+    code = user.get("friend_code")
+    if code:
+        return code
+    for _ in range(10):
+        candidate = "".join(secrets.choice(FRIEND_CODE_ALPHABET) for _ in range(6))
+        exists = await db.users.find_one({"friend_code": candidate}, {"_id": 1})
+        if exists:
+            continue
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"friend_code": candidate}})
+        return candidate
+    raise HTTPException(status_code=500, detail="Could not generate friend code")
+
+async def _friend_ids(user_id: str) -> List[str]:
+    rows = await db.friends.find({"user_id": user_id}, {"_id": 0, "friend_id": 1}).to_list(500)
+    return [r["friend_id"] for r in rows]
+
+async def _link_friends(a: str, b: str):
+    ts = now_utc()
+    for x, y in ((a, b), (b, a)):
+        await db.friends.update_one(
+            {"user_id": x, "friend_id": y},
+            {"$setOnInsert": {"created_at": ts}},
+            upsert=True,
+        )
+
+@api_router.get("/friends/me")
+async def friends_me(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    code = await _ensure_friend_code(user)
+    return {
+        "user_id": user["user_id"],
+        "name": user.get("name") or "Friend",
+        "friend_code": code,
+        "qr_payload": f"sproutgoals:friend:{code}",
+    }
+
+@api_router.post("/friends/requests")
+async def send_friend_request(payload: FriendRequestCreate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    raw = (payload.code or "").strip()
+    if raw.lower().startswith("sproutgoals:friend:"):
+        raw = raw.split(":")[-1]
+    code = raw.upper()
+    if len(code) != 6:
+        raise HTTPException(status_code=400, detail="Invalid friend code")
+    target = await db.users.find_one({"friend_code": code}, {"_id": 0, "user_id": 1, "name": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="No one found with that code")
+    if target["user_id"] == user["user_id"]:
+        raise HTTPException(status_code=400, detail="That's your own code!")
+    already = await db.friends.find_one({"user_id": user["user_id"], "friend_id": target["user_id"]})
+    if already:
+        raise HTTPException(status_code=400, detail="You're already friends")
+    # If they already invited us, accept instantly
+    incoming = await db.friend_requests.find_one({
+        "from_user_id": target["user_id"], "to_user_id": user["user_id"], "status": "pending",
+    })
+    if incoming:
+        await db.friend_requests.update_one(
+            {"request_id": incoming["request_id"]},
+            {"$set": {"status": "accepted", "responded_at": now_utc()}},
+        )
+        await _link_friends(user["user_id"], target["user_id"])
+        return {"status": "accepted", "friend_name": target.get("name") or "Friend"}
+    dup = await db.friend_requests.find_one({
+        "from_user_id": user["user_id"], "to_user_id": target["user_id"], "status": "pending",
+    })
+    if dup:
+        return {"status": "pending", "friend_name": target.get("name") or "Friend"}
+    await db.friend_requests.insert_one({
+        "request_id": f"fr_{uuid.uuid4().hex[:12]}",
+        "from_user_id": user["user_id"],
+        "to_user_id": target["user_id"],
+        "status": "pending",
+        "created_at": now_utc(),
+    })
+    try:
+        await send_push(
+            recipients=[target["user_id"]],
+            data={
+                "title": "New friend request 🌱",
+                "message": f"{user.get('name') or 'Someone'} wants to grow trees with you.",
+                "action_url": "/(tabs)/friends",
+            },
+        )
+    except Exception as e:
+        logger.warning(f"Push failed (non-blocking): {e}")
+    return {"status": "pending", "friend_name": target.get("name") or "Friend"}
+
+@api_router.get("/friends/requests")
+async def list_friend_requests(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    incoming_rows = await db.friend_requests.find(
+        {"to_user_id": user["user_id"], "status": "pending"}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    outgoing_rows = await db.friend_requests.find(
+        {"from_user_id": user["user_id"], "status": "pending"}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+
+    async def _name(uid: str) -> str:
+        u = await db.users.find_one({"user_id": uid}, {"_id": 0, "name": 1})
+        return (u or {}).get("name") or "Friend"
+
+    incoming = [
+        {"request_id": r["request_id"], "user_id": r["from_user_id"], "name": await _name(r["from_user_id"])}
+        for r in incoming_rows
+    ]
+    outgoing = [
+        {"request_id": r["request_id"], "user_id": r["to_user_id"], "name": await _name(r["to_user_id"])}
+        for r in outgoing_rows
+    ]
+    return {"incoming": incoming, "outgoing": outgoing}
+
+@api_router.post("/friends/requests/{request_id}/{action}")
+async def respond_friend_request(request_id: str, action: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    if action not in ("accept", "decline"):
+        raise HTTPException(status_code=400, detail="Invalid action")
+    req = await db.friend_requests.find_one(
+        {"request_id": request_id, "to_user_id": user["user_id"], "status": "pending"}, {"_id": 0}
+    )
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    await db.friend_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {"status": "accepted" if action == "accept" else "declined", "responded_at": now_utc()}},
+    )
+    if action == "accept":
+        await _link_friends(user["user_id"], req["from_user_id"])
+    return {"ok": True, "status": action}
+
+@api_router.delete("/friends/{friend_id}")
+async def remove_friend(friend_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    await db.friends.delete_many({"user_id": user["user_id"], "friend_id": friend_id})
+    await db.friends.delete_many({"user_id": friend_id, "friend_id": user["user_id"]})
+    return {"ok": True}
+
+@api_router.get("/friends/leaderboard")
+async def friends_leaderboard(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    ids = await _friend_ids(user["user_id"])
+    all_ids = [user["user_id"]] + ids
+    week_start = now_utc() - timedelta(days=7)
+
+    users = await db.users.find(
+        {"user_id": {"$in": all_ids}}, {"_id": 0, "user_id": 1, "name": 1, "streak_days": 1}
+    ).to_list(500)
+    plants = await db.plants.find(
+        {"user_id": {"$in": all_ids}, "is_current": True}, {"_id": 0, "user_id": 1, "xp": 1, "is_dead": 1}
+    ).to_list(500)
+    xp_by_user = {p["user_id"]: int(p.get("xp", 0)) for p in plants}
+    dead_by_user = {p["user_id"]: bool(p.get("is_dead", False)) for p in plants}
+    focus_rows = await db.focus_sessions.aggregate([
+        {"$match": {"user_id": {"$in": all_ids}, "created_at": {"$gte": week_start}}},
+        {"$group": {"_id": "$user_id", "total": {"$sum": "$duration_minutes"}}},
+    ]).to_list(500)
+    focus_by_user = {r["_id"]: int(r["total"]) for r in focus_rows}
+
+    rows = [
+        {
+            "user_id": u["user_id"],
+            "name": u.get("name") or "Friend",
+            "xp": xp_by_user.get(u["user_id"], 0),
+            "streak_days": int(u.get("streak_days", 0)),
+            "focus_minutes_week": focus_by_user.get(u["user_id"], 0),
+            "is_dead": dead_by_user.get(u["user_id"], False),
+            "is_me": u["user_id"] == user["user_id"],
+        }
+        for u in users
+    ]
+    rows.sort(key=lambda r: (-r["xp"], -r["streak_days"], r["name"].lower()))
+    for i, r in enumerate(rows):
+        r["rank"] = i + 1
+    return {"leaderboard": rows, "friend_count": len(ids)}
+
 
 # ---------- Stats ----------
 @api_router.get("/weekly-recap")

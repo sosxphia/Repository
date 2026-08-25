@@ -1,0 +1,69 @@
+{
+  "summary": "Backend for Session History + Focus Lock Streak is fully implemented and passes 9/9 pytest. Frontend Timer tab is MISSING the entire new UI — /app/frontend/app/(tabs)/timer.tsx (378 lines, md5 9e4c64caa96e...) has zero occurrences of ScrollView, focus-streak-card, focus-history-card, focus-history-row, streakCard or historyCard. The `today` state variable and `loadToday()` fetch to /focus-sessions/today ARE wired up (so the endpoint is called), but nothing renders. DOM verification: after fresh reload and Metro restart, timer-screen has only 4 direct children (header, timer circle, focus-lock-banner, presetsRow) and no scrollable container. Body text ends at '2 hr' with no 'Today', no 'sessions in a row', no 'best'. This is a HIGH-priority feature gap — E1 must add the streak card + history card JSX (and the wrapping ScrollView) that the PRD calls for.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Timer tab — Focus Lock streak card",
+        "issue": "focus-streak-card is not present in the DOM or in the source file. /app/frontend/app/(tabs)/timer.tsx has no JSX for the streak card (grep for 'focus-streak-card' / 'streakCard' returns 0). Backend field focus_lock_streak & focus_lock_best are being fetched into state but never rendered.",
+        "testID": "focus-streak-card",
+        "priority": "HIGH"
+      },
+      {
+        "component": "Timer tab — Today's sessions card",
+        "issue": "focus-history-card and focus-history-row are not present in the DOM or in the source file. Empty state and per-session rows (time / minutes / +XP) are unimplemented. /app/frontend/app/(tabs)/timer.tsx has 0 matches for those testIDs.",
+        "testID": "focus-history-card / focus-history-row",
+        "priority": "HIGH"
+      },
+      {
+        "component": "Timer tab — ScrollView wrapper",
+        "issue": "Timer body is not wrapped in a ScrollView (grep for '<ScrollView' in timer.tsx returns 0 hits, though it is imported on line 2). The screen is therefore not scrollable; content below the presets is not reachable even if added.",
+        "testID": "n/a",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Complete 1-min custom session → history + streak update",
+        "issue": "Backend behaviour is correct: completing a 1-min session via UI writes to /api/focus-sessions (verified — /focus-sessions/today then returned 1 session and focus_lock_streak=1 for ui-test-user). But the UI never reflects this because the streak/history cards are not rendered. XP banner (+2 XP) does show and the timer resets, so the timer flow itself works.",
+        "affected_testIDs": ["focus-streak-card", "focus-history-card", "focus-history-row"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RN Web shadow props", "issue": "Pre-existing warning '\"shadow*\" style props are deprecated. Use \"boxShadow\".' Not new — cosmetic on web only. Reference: /app/frontend/app/(tabs)/timer.tsx:308 (shadowColor/shadowOffset/shadowOpacity/shadowRadius on circle & startBtn)."},
+      {"component": "RN Web pointerEvents prop", "issue": "Pre-existing warning 'props.pointerEvents is deprecated. Use style.pointerEvents' — from Modal usage or a dependency. Non-blocking."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_focus_history.py",
+    "/app/test_reports/pytest/focus_history_results.xml"
+  ],
+  "action_items": [
+    "MAIN AGENT: Re-add the ScrollView wrapper and the two cards to /app/frontend/app/(tabs)/timer.tsx — they are missing from the current version on disk. Required elements: (a) wrap the timer body (from circleWrap down through startBtn) in <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps='handled'>; (b) after the running-stop button, add <View testID='focus-streak-card'> showing 🔥 {today?.focus_lock_streak ?? 0}, N sessions in a row, and best={today?.focus_lock_best ?? 0}; (c) then <View testID='focus-history-card'> with header 'Today's sessions', empty state when today?.sessions.length===0, and today.sessions.map(s => <View testID='focus-history-row' key={s.session_id}> time / duration_minutes / +xp_earned XP </View>).",
+    "MAIN AGENT: Add corresponding StyleSheet entries (streakCard, streakBig, streakTitle, streakSub, historyCard, historyHeader, historyTitle, historyTotal, historyEmpty, historyRow, historyTime, historyDur, historyXp, and a body paddingBottom for the ScrollView).",
+    "MAIN AGENT: The body of the timer content overflows on small screens once the new cards are added — ensure they sit inside the ScrollView, not below it, so the tab bar doesn't cover the last row."
+  ],
+  "critical_code_review_comments": [
+    "server.py:600-626 POST /api/focus-sessions correctly $inc's focus_lock_streak atomically via find_one_and_update(ReturnDocument.AFTER) and then bumps focus_lock_best only if the new streak exceeds the previous best. Verified with pytest: seq 1→2→5 all persist correctly and best tracks the max.",
+    "server.py:628-652 GET /api/focus-sessions/today returns sessions newest-first (sort created_at -1), includes session_id/duration_minutes/xp_earned/created_at ISO string, plus total_minutes, total_xp, focus_lock_streak, focus_lock_best. Auth guard returns 401 for missing and bad tokens. Excludes _id from projection — safe.",
+    "server.py:333-352 POST /api/plants/focus-break correctly resets focus_lock_streak to 0 in BOTH branches: killed:true path (line 350) and killed:false / already-dead path (line 346). Verified with pytest — user's focus_lock_best is preserved (not reset).",
+    "timer.tsx:31-37 today state shape matches the API. timer.tsx:49-53 loadToday() runs on mount and after handleComplete (line ~111), stop (line ~157) and killTree — but the fetched values are never consumed by the JSX because the cards are missing on disk. Data pipeline is 100% ready; only the render layer is absent.",
+    "timer.tsx:2 imports ScrollView but the JSX never uses it (grep confirms 0 usages) — dead import."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_focus_history.py (new — 9 tests: /focus-sessions/today shape + auth, /focus-sessions streak increment + best tracking, /plants/focus-break resets streak on alive + already-dead trees + auth guard). Tests use isolated TEST_ users and teardown after."
+  ],
+  "success_rate": {
+    "backend": "100% (9/9 pytest on new focus history + streak endpoints; existing regression suite untouched)",
+    "frontend": "0% of the two new cards — they are entirely missing from timer.tsx on disk. Timer + preset + custom + XP banner + Focus Lock death modal flows still work as before."
+  },
+  "seed_data_creation": "New isolated test users under user_TESTFH_* were created and torn down inside the pytest fixture. UI test created one 1-min focus_session on ui-test-user via the running UI — cleaned up: deleted that 1 short session and rolled back ui-test-user.focus_lock_streak from 1 back to 0 (best stays at 1 as expected). plant_f950c13f4790 verified alive (is_dead:false, is_current:true) at end of run — no restore was needed (already alive).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend endpoints are solid — re-run pytest /app/backend/tests/test_focus_history.py -v to confirm. Once E1 re-implements the streak + history UI, focus frontend testing on: (1) initial render shows streak card with 🔥 0 and history card empty state 'No focus sessions yet today — start one above 🌱'; (2) start & complete a 1-min custom session, verify a new focus-history-row appears with time/1 min/+2 XP and streak card flips to 🔥 1 · '1 session in a row · best N'; (3) verify screen is scrollable — the streak/history cards must sit inside a ScrollView. Auth: localStorage.setItem('sprout_session_token','uitest_token_123'). Always clean up any short (<=2 min) focus_sessions created for ui-test-user today and roll back focus_lock_streak accordingly.",
+  "rca_of_issue": "Root cause: /app/frontend/app/(tabs)/timer.tsx on disk is missing the JSX for both cards and the ScrollView wrapping — only the state hook (today) and the loadToday() fetch were added. This is a frontend implementation gap by E1, not a bundler/cache issue (verified after supervisor restart of expo, hard reload with cache bust, and md5 of the file on disk). grep counts: 'focus-streak-card' → 0, 'focus-history-card' → 0, '<ScrollView' → 0. Reproduction: open /(tabs)/timer, enumerate document.querySelectorAll('[data-testid]') — returns 7 IDs only, none of which is streak/history. Fix: E1 to add the missing JSX + styles per the action_items above."
+}

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, TextInput, AppState, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
@@ -8,6 +7,19 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { apiFetch } from "@/src/lib/api";
 import { colors, spacing, radius } from "@/src/lib/theme";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  TextInput,
+  AppState,
+  Modal,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+} from "react-native";
 
 const GRACE_SECONDS = 60;
 
@@ -28,6 +40,13 @@ export default function Timer() {
   const [deathOpen, setDeathOpen] = useState(false);
   const [deadName, setDeadName] = useState("Your tree");
   const [forgiven, setForgiven] = useState(false);
+  const [today, setToday] = useState<{
+    sessions: { session_id: string; duration_minutes: number; xp_earned: number; created_at: string | null }[];
+    total_minutes: number;
+    total_xp: number;
+    focus_lock_streak: number;
+    focus_lock_best: number;
+  } | null>(null);
   const intervalRef = useRef<any>(null);
   const runningRef = useRef(false);
   const awayAtRef = useRef<number | null>(null);
@@ -38,6 +57,12 @@ export default function Timer() {
       KeepAwake.deactivateKeepAwake().catch(() => {});
     };
   }, []);
+
+  const loadToday = () => {
+    apiFetch("/focus-sessions/today").then(setToday).catch(() => {});
+  };
+
+  useEffect(() => { loadToday(); }, []);
 
   const clearTimer = () => {
     runningRef.current = false;
@@ -58,6 +83,7 @@ export default function Timer() {
       console.log("focus-break err", e);
     }
     setDeathOpen(true);
+    loadToday();
   };
 
   useEffect(() => {
@@ -90,6 +116,7 @@ export default function Timer() {
         body: JSON.stringify({ duration_minutes: minutes }),
       });
       setLastXp(res.xp_earned);
+      loadToday();
     } catch (e) {
       console.log("focus save err", e);
     }
@@ -140,7 +167,7 @@ export default function Timer() {
       apiFetch("/focus-sessions", {
         method: "POST",
         body: JSON.stringify({ duration_minutes: elapsedMin }),
-      }).then((r) => setLastXp(r.xp_earned)).catch(() => {});
+      }).then((r) => { setLastXp(r.xp_earned); loadToday(); }).catch(() => {});
     }
     setRemaining(duration * 60);
   };
@@ -157,17 +184,44 @@ export default function Timer() {
       </View>
 
       {/* Circle timer */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.body}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="interactive"
+        >
       <View style={styles.circleWrap}>
         <LinearGradient
           colors={running ? ["#DCFCE7", "#A7F3D0"] : ["#FEF3C7", "#FDE68A"]}
           style={styles.circle}
         >
-          <Text style={styles.plantEmoji}>{running ? "🌿" : "💤"}</Text>
-          <Text style={styles.timeText} testID="timer-display">{mins}:{secs}</Text>
+          <Text style={styles.plantEmoji}>{running ? "🌿" : customOpen ? "✏️" : "💤"}</Text>
+          {customOpen && !running ? (
+            <TextInput
+              value={customMin}
+              onChangeText={setCustomMin}
+              keyboardType="number-pad"
+              placeholder="25"
+              placeholderTextColor="rgba(0,0,0,0.25)"
+              style={styles.clockInput}
+              maxLength={3}
+              autoFocus
+              onSubmitEditing={startCustom}
+              testID="custom-minutes-input"
+            />
+          ) : (
+            <Text style={styles.timeText} testID="timer-display">{mins}:{secs}</Text>
+          )}
           <View style={styles.circleProgressBg}>
             <View style={[styles.circleProgressFill, { width: `${Math.round(pct * 100)}%` }]} />
           </View>
-          <Text style={styles.status}>{running ? "Focusing…" : "Pick a time to start"}</Text>
+          <Text style={styles.status}>
+            {running ? "Focusing…" : customOpen ? "Type minutes (1–480)" : "Pick a time to start"}
+          </Text>
         </LinearGradient>
       </View>
 
@@ -177,8 +231,8 @@ export default function Timer() {
           {running ? "🔒 Focus Lock is ON" : "🔒 Focus Lock is always on"}
         </Text>
         <Text style={styles.lockText}>
-          Leave the app for more than 60 seconds during a session and your tree dies 💀. Quick
-          interruptions like a phone call under a minute are forgiven.
+          Leave the app for more than 60 seconds during a session and your tree will die. Quick
+          interruptions under a minute are forgiven.
         </Text>
       </View>
 
@@ -201,21 +255,16 @@ export default function Timer() {
 
           {customOpen && (
             <View style={styles.customRow}>
-              <TextInput
-                value={customMin}
-                onChangeText={setCustomMin}
-                keyboardType="number-pad"
-                placeholder="minutes (1–480)"
-                placeholderTextColor={colors.onSurfaceMuted}
-                style={styles.customInput}
-                maxLength={3}
-                autoFocus
-                onSubmitEditing={startCustom}
-                testID="custom-minutes-input"
-              />
-              <Pressable onPress={startCustom} style={styles.customGo} testID="custom-start-button">
+              <Pressable
+                onPress={() => {
+                  Keyboard.dismiss();
+                  startCustom();
+                }}
+                style={styles.customGo}
+                testID="custom-start-button"
+              >
                 <Ionicons name="play" size={16} color="#FFF" />
-                <Text style={styles.customGoText}>Go</Text>
+                <Text style={styles.customGoText}>Start {customMin ? `${customMin} min` : "custom"}</Text>
               </Pressable>
             </View>
           )}
@@ -255,6 +304,46 @@ export default function Timer() {
         </Pressable>
       )}
 
+      {/* Focus Lock streak */}
+      <View style={styles.streakCard} testID="focus-streak-card">
+        <Text style={styles.streakBig}>🔥 {today?.focus_lock_streak ?? 0}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.streakTitle}>
+            {(today?.focus_lock_streak ?? 0) === 1 ? "1 session in a row" : `${today?.focus_lock_streak ?? 0} sessions in a row`}
+          </Text>
+          <Text style={styles.streakSub}>
+            Finished without breaking Focus Lock · best {today?.focus_lock_best ?? 0}
+          </Text>
+        </View>
+      </View>
+
+      {/* Today's sessions */}
+      <View style={styles.historyCard} testID="focus-history-card">
+        <View style={styles.historyHeader}>
+          <Text style={styles.historyTitle}>Today&apos;s sessions 🕥</Text>
+          {!!today && today.sessions.length > 0 && (
+            <Text style={styles.historyTotal}>{today.total_minutes}m · +{today.total_xp} XP</Text>
+          )}
+        </View>
+        {!today || today.sessions.length === 0 ? (
+          <Text style={styles.historyEmpty}>No focus sessions yet today — start one above 🌱</Text>
+        ) : (
+          today.sessions.map((s) => (
+            <View key={s.session_id} style={styles.historyRow} testID="focus-history-row">
+              <Text style={styles.historyTime}>
+                {s.created_at
+                  ? new Date(s.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+                  : "—"}
+              </Text>
+              <Text style={styles.historyDur}>{s.duration_minutes} min</Text>
+              <Text style={styles.historyXp}>+{s.xp_earned} XP</Text>
+            </View>
+          ))
+        )}
+      </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+
       {/* Tree died — Focus Lock broken */}
       <Modal transparent visible={deathOpen} animationType="fade" onRequestClose={() => setDeathOpen(false)}>
         <View style={styles.modalWrap}>
@@ -284,6 +373,30 @@ export default function Timer() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
+  body: { paddingBottom: spacing.xxl },
+  streakCard: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md,
+    backgroundColor: "#FFF7ED", borderRadius: radius.lg, borderWidth: 2, borderColor: "#FED7AA",
+    padding: spacing.md, marginTop: spacing.md,
+  },
+  streakBig: { fontSize: 26, fontWeight: "800", color: "#C2410C" },
+  streakTitle: { fontSize: 15, fontWeight: "800", color: colors.onSurface },
+  streakSub: { fontSize: 12, color: colors.onSurfaceMuted, marginTop: 2 },
+  historyCard: {
+    backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg,
+    padding: spacing.md, marginTop: spacing.md,
+  },
+  historyHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.sm },
+  historyTitle: { fontSize: 15, fontWeight: "800", color: colors.onSurface },
+  historyTotal: { fontSize: 12, fontWeight: "700", color: colors.brandPrimary },
+  historyEmpty: { fontSize: 13, color: colors.onSurfaceMuted },
+  historyRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border,
+  },
+  historyTime: { fontSize: 13, color: colors.onSurfaceMuted, fontWeight: "700", width: 80 },
+  historyDur: { fontSize: 14, color: colors.onSurface, fontWeight: "700", flex: 1, textAlign: "center" },
+  historyXp: { fontSize: 13, color: colors.brandPrimary, fontWeight: "800" },
   headerRow: { marginTop: spacing.md, marginBottom: spacing.lg },
   h1: { fontSize: 28, fontWeight: "700", color: colors.onSurface, letterSpacing: -0.5 },
   subtitle: { fontSize: 13, color: colors.onSurfaceMuted, marginTop: 2 },
@@ -295,6 +408,11 @@ const styles = StyleSheet.create({
   },
   plantEmoji: { fontSize: 40, marginBottom: 2 },
   timeText: { fontSize: 46, fontWeight: "800", color: colors.onSurface, letterSpacing: -1 },
+  clockInput: {
+    fontSize: 46, fontWeight: "800", color: colors.onSurface, letterSpacing: -1,
+    textAlign: "center", minWidth: 130, paddingVertical: 0,
+    borderBottomWidth: 3, borderBottomColor: colors.brandSecondary,
+  },
   circleProgressBg: { width: "80%", height: 8, backgroundColor: "rgba(255,255,255,0.7)", borderRadius: radius.pill, marginTop: spacing.md, overflow: "hidden" },
   circleProgressFill: { height: "100%", backgroundColor: colors.brandSecondary, borderRadius: radius.pill },
   status: { fontSize: 13, color: colors.onSurfaceMuted, marginTop: spacing.sm, fontWeight: "600" },
@@ -329,7 +447,7 @@ const styles = StyleSheet.create({
   xpBannerText: { color: colors.onBrandTertiary, fontWeight: "700" },
   startBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    paddingVertical: 18, borderRadius: radius.pill, marginTop: "auto", marginBottom: spacing.md,
+    paddingVertical: 18, borderRadius: radius.pill, marginTop: spacing.md, marginBottom: spacing.md,
     shadowColor: colors.brandSecondary, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
   },
   startText: { color: "#FFF", fontSize: 17, fontWeight: "800" },

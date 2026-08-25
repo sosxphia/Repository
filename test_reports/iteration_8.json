@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration 8 — full backend + frontend test of the new Friends feature (QR + friend codes + requests + leaderboard) plus timer regression retests. Backend: 21/21 pytest tests PASS covering /friends/me (stable 6-char code, correct qr_payload prefix), POST /friends/requests (raw code, qr_payload, unknown->404, own->400, already-friends->400, invalid-length->400, reverse-request auto-accept), GET /friends/requests (incoming/outgoing with names), accept/decline (with 404 for non-recipient and 400 for invalid action), DELETE /friends/{id} (unlinks both directions), and /friends/leaderboard (sorted by xp desc, ranks 1..N, is_me set, streak_days + focus_minutes_week columns). All 6 endpoints correctly 401 without auth. Frontend: Friends screen renders — my-qr-card shows a real react-native-qrcode-svg <svg>, friend-code-pill shows the code 'JPXDY8', scan-qr-button is present (camera can't be exercised in web preview but no crash), leaderboard-card shows 2 rows with rank/name/XP/🔥/Min columns and correctly highlights the current user with '(you)' + brandTertiary background. Send-request flow via friend-code-input + send-request-button submitted OK (unfriend → send → auto-cleanup via B accept, all 200s). Timer regression FIXED — handleComplete now calls loadToday() (timer.tsx:119), custom-minutes-input is rendered INSIDE the timer clock (y=176 vs preset-custom button y=447, ~270px above), and custom-start-button label transitions 'Start custom' → 'Start 1 min' when '1' typed. All test users/requests were cleaned up: A and B are back to their pre-test 'friends' state and plant_f950c13f4790 (Oakley II) remains is_dead:false / is_current:true. One minor code-quality issue found (typo `behaviour` on KeyboardAvoidingView in timer.tsx:189 — should be `behavior`, non-blocking on web but ignored on native).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "KeyboardAvoidingView prop typo",
+        "issue": "timer.tsx:189 uses `behaviour=` (British spelling) instead of the correct RN prop name `behavior`. On web the prop is unused so nothing crashes, but on iOS the padding-avoid behavior will silently NOT engage because RN reads `behavior`. Reference: /app/frontend/app/(tabs)/timer.tsx:189"
+      },
+      {
+        "component": "RN Web shadow* deprecation warnings",
+        "issue": "Pre-existing cosmetic warnings '\"shadow*\" style props are deprecated. Use \"boxShadow\".' still emitted on web bundle. Reference: multiple styles in timer.tsx and friends.tsx."
+      },
+      {
+        "component": "RN Web pointerEvents deprecation",
+        "issue": "Pre-existing warning 'props.pointerEvents is deprecated. Use style.pointerEvents' — friends.tsx:309 (<View pointerEvents=\"none\">). Non-blocking."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_friends.py",
+    "/app/test_reports/pytest/friends_results.xml"
+  ],
+  "action_items": [
+    "MINOR — fix typo `behaviour` → `behavior` on KeyboardAvoidingView (timer.tsx:189). Non-blocking, but keyboard-padding won't engage on iOS as-is.",
+    "OPTIONAL cleanup — replace legacy `shadow*` style props with `boxShadow`/`elevation` and move Modal/View `pointerEvents` prop into `style.pointerEvents` to silence RN Web warnings.",
+    "OPTIONAL — leaderboard row uses onLongPress to remove a friend; consider adding a small (i) affordance since the 'Long-press a friend to remove them' hint is easy to miss."
+  ],
+  "critical_code_review_comments": [
+    "server.py:661-672 _ensure_friend_code — 10-retry uniqueness loop over a 32^6 (~1B) space is fine; friend_code index is NOT declared unique in startup — a race between two concurrent /friends/me calls for two different users could theoretically issue duplicate codes. Recommend adding `db.users.create_index('friend_code', unique=True, sparse=True)` in startup for defense in depth.",
+    "server.py:698-749 send_friend_request — correctly parses `sproutgoals:friend:<CODE>` prefix (case-insensitive), upper-cases, length-validates, blocks self and already-friends, auto-accepts a reverse pending request, and idempotently returns `pending` on duplicate outgoing requests. Solid.",
+    "server.py:800-836 leaderboard — sort key is (-xp, -streak_days, name.lower()) which is deterministic and matches spec. is_me flag & rank fill both correct.",
+    "friends.tsx:33 useCameraPermissions is called at module scope — on web this hook can log a warning but does not crash. Consider gating behind Platform.OS !== 'web' if the warning becomes noisy.",
+    "friends.tsx:97 respond() optimistically removes the request from state but does NOT re-add on failure; if the accept/decline POST returns 4xx/5xx the row silently disappears. Minor UX gap.",
+    "timer.tsx:110-124 handleComplete now correctly calls loadToday() after the POST — iteration_7 regression fixed."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (21/21 friends endpoint tests pass — see /app/test_reports/pytest/friends_results.xml)",
+    "frontend": "100% on tested paths (Friends screen render, QR SVG, friend-code-pill, scan button visibility, leaderboard rendering + highlight + column order, send-request roundtrip, timer custom-input placement inside clock, custom-start label update, timer handleComplete regression fix confirmed)."
+  },
+  "seed_data_creation": "None persisted. During testing I unfriended A/B, exchanged a fresh request, and then had B accept it via API to restore the original friendship. All friend_requests rows between A and B were deleted at end of run. plant_f950c13f4790 (Oakley II) verified is_dead:false / is_current:true. Backend pytest fixture also unlinks/relinks A and B automatically.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend friends suite is at /app/backend/tests/test_friends.py — MUST be run with `-o addopts=''` (or `-p no:xdist`) because it manipulates shared user state (users A and B) and parallel workers race on friend_requests/friends collections. Sequential run passes 21/21 in ~5s. If you re-run, the module-scoped fixture unlinks A/B at setup and re-links at teardown so no manual cleanup is required. Frontend note: tab bar test IDs are named `focus-tab`, `friends-tab` etc. (NOT `garden-tab` / `timer-tab`) — the Garden tab in the tab bar is labeled 'Tree'. Auth bootstrap: on first goto '/', AuthContext calls /auth/me → 401 → clearToken(). To use the seeded token, wait for [data-testid=login-screen], THEN localStorage.setItem, THEN reload.",
+  "rca_of_issue": "N/A — no bugs to root-cause this iteration. The iteration_7 regression (Timer streak/history not refreshing after auto-complete) is confirmed FIXED at timer.tsx:119 (`loadToday()` added inside handleComplete). Friends feature ships clean."
+}
