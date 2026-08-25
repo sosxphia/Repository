@@ -84,7 +84,7 @@ export default function Login() {
           </View>
         )}
 
-        <Text style={styles.hint}>Sign in to sync your garden across devices 🌿</Text>
+        <Text style={styles.hint}>Sign in to sync your plant across devices 🌿</Text>
       </SafeAreaView>
     </LinearGradient>
   );

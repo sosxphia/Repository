@@ -1,9 +1,12 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing } from "@/src/lib/theme";
+import { colors } from "@/src/lib/theme";
 import { Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Platform.OS === "ios" ? Math.max(insets.bottom, 20) : Math.max(insets.bottom, 16);
   return (
     <Tabs
       screenOptions={{
@@ -14,8 +17,8 @@ export default function TabsLayout() {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          height: Platform.OS === "ios" ? 88 : 68,
-          paddingBottom: Platform.OS === "ios" ? 28 : 10,
+          height: 60 + bottomInset,
+          paddingBottom: bottomInset,
           paddingTop: 8,
         },
         tabBarLabelStyle: { fontSize: 12, fontWeight: "700" },
@@ -31,20 +34,20 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="timer"
-        options={{
-          title: "Focus",
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "timer" : "timer-outline"} size={24} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="goals"
         options={{
           title: "Goals",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? "checkbox" : "checkbox-outline"} size={24} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="timer"
+        options={{
+          title: "Focus",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "timer" : "timer-outline"} size={24} color={color} />
           ),
         }}
       />
