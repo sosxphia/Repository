@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only verification of Profile Focus Lock confirmation modal (replaced web-incompatible Alert.alert). All primary flows PASS on mobile web viewport (390x844). OFF path is immediate (no modal, focus-lock-warning hidden, PATCH /api/settings persists focus_lock_enabled=false). Re-ON opens focus-lock-confirm-modal with correct 60-second tree-death warning text. Cancel closes modal and leaves setting OFF. 'Turn on' closes modal, persists focus_lock_enabled=true and re-renders red focus-lock-warning. Timer tab focus-lock-banner correctly reads 'Focus Lock is on' after tab switch. Regression: Profile tab renders stats, weekly recap, streak calendar, badges, PayPal buy-freeze-button, notifications-switch (toggling persists via PATCH), and logout-button. Notifications toggle also persists and was restored. Final user state left as required: notifications_enabled=true, focus_lock_enabled=true; plant plant_f950c13f4790 alive (is_dead=false).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/tmp/p_initial.png",
+    "/tmp/p_modal.png",
+    "/tmp/timer_focus_on.png"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "profile.tsx line 45: initial settings state defaults to {notifications_enabled:true, focus_lock_enabled:true} before /api/settings resolves. This is fine for UX but if load() fails silently the switch may show ON while the server has it OFF; consider showing a loading skeleton for the Settings section.",
+    "toggleFocusLock(false) calls saveSetting which sets state optimistically THEN awaits PATCH. If PATCH fails the optimistic OFF is never rolled back — only 'settings err' is logged. Consider surfacing the error to user."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "skipped (per instructions)", "frontend": "100%"},
+  "seed_data_creation": "No new seed data. Refreshed uitest_token_123 session expiry to +7 days (was still valid). ui-test-user left with notifications_enabled=true, focus_lock_enabled=true; plant plant_f950c13f4790 remains alive.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Web preview app served at EXPO_PUBLIC_BACKEND_URL. Auth via localStorage.setItem('sprout_session_token','uitest_token_123'); reload; wait ~7s for Expo router to hydrate. Bottom-tab labels 'Focus' and 'Profile' appear twice in DOM (action shortcuts on Tree screen + tab bar), use page.get_by_role('tab', name='Focus'/'Profile') to disambiguate. All focus-lock testIDs present: focus-lock-switch, focus-lock-warning, focus-lock-confirm-modal, focus-lock-confirm-button, focus-lock-cancel-button. Timer banner testID: focus-lock-banner.",
+  "rca_of_issue": "N/A — no bug reproduced. Modal replacement for web is functioning as designed."
+}

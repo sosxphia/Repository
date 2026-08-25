@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl, Modal, Share, Platform, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl, Modal, Share, Platform, Alert, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -42,7 +42,29 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [buying, setBuying] = useState(false);
+  const [settings, setSettings] = useState({ notifications_enabled: true, focus_lock_enabled: true });
+  const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
   const purchaseRef = useRef<{ cancel: () => void } | null>(null);
+
+  const saveSetting = async (patch: { notifications_enabled?: boolean; focus_lock_enabled?: boolean }) => {
+    Haptics.selectionAsync();
+    setSettings((prev) => ({ ...prev, ...patch }));
+    try {
+      const res = await apiFetch("/settings", { method: "PATCH", body: JSON.stringify(patch) });
+      setSettings(res);
+    } catch (e) {
+      console.log("settings err", e);
+    }
+  };
+
+  const toggleFocusLock = (v: boolean) => {
+    if (!v) {
+      saveSetting({ focus_lock_enabled: false });
+      return;
+    }
+    Haptics.selectionAsync();
+    setLockConfirmOpen(true);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -52,6 +74,7 @@ export default function Profile() {
       ]);
       setStats(s);
       setRecap(r);
+      apiFetch("/settings").then(setSettings).catch(() => {});
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -223,6 +246,51 @@ export default function Profile() {
           </>
         )}
 
+        {/* Settings */}
+        <Text style={styles.sectionTitle}>Settings</Text>
+        <View style={styles.settingsCard} testID="settings-card">
+          <View style={styles.settingRow}>
+            <View style={styles.settingLabelWrap}>
+              <Text style={styles.settingLabel}>Notifications</Text>
+              <Text style={styles.settingSub}>Streak reminders and friend requests</Text>
+            </View>
+            <Switch
+              value={settings.notifications_enabled}
+              onValueChange={(v) => saveSetting({ notifications_enabled: v })}
+              trackColor={{ true: colors.brandSecondary, false: colors.borderStrong }}
+              thumbColor="#FFFFFF"
+              testID="notifications-switch"
+            />
+          </View>
+
+          <View style={[styles.settingRow, styles.settingRowBorder]}>
+            <View style={styles.settingLabelWrap}>
+              <Text style={styles.settingLabel}>Focus Lock 🔒</Text>
+              <Text style={styles.settingSub}>
+                {settings.focus_lock_enabled
+                  ? "On — leaving the app during a focus session kills your tree"
+                  : "Off — you can leave the app during a focus session"}
+              </Text>
+            </View>
+            <Switch
+              value={settings.focus_lock_enabled}
+              onValueChange={toggleFocusLock}
+              trackColor={{ true: colors.error, false: colors.borderStrong }}
+              thumbColor="#FFFFFF"
+              testID="focus-lock-switch"
+            />
+          </View>
+
+          {settings.focus_lock_enabled && (
+            <View style={styles.settingWarn} testID="focus-lock-warning">
+              <Text style={styles.settingWarnText}>
+                ⚠️ While Focus Lock is on, leaving the app for more than 60 seconds during a focus
+                session will kill your tree. Interruptions under a minute are forgiven.
+              </Text>
+            </View>
+          )}
+        </View>
+
         <Pressable
           onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); signOut(); }}
           style={({ pressed }) => [styles.logoutBtn, pressed && { transform: [{ scale: 0.97 }] }]}
@@ -232,6 +300,30 @@ export default function Profile() {
           <Text style={styles.logoutText}>Sign out</Text>
         </Pressable>
       </ScrollView>
+
+      {/* Focus Lock confirmation */}
+      <Modal transparent visible={lockConfirmOpen} animationType="fade" onRequestClose={() => setLockConfirmOpen(false)}>
+        <View style={styles.confirmWrap}>
+          <View style={styles.confirmCard} testID="focus-lock-confirm-modal">
+            <Text style={styles.confirmEmoji}>🔒</Text>
+            <Text style={styles.confirmTitle}>Turn on Focus Lock?</Text>
+            <Text style={styles.confirmText}>
+              Your tree will die if you leave the app for more than 60 seconds during a focus
+              session. Quick interruptions under a minute are forgiven.
+            </Text>
+            <Pressable
+              onPress={() => { setLockConfirmOpen(false); saveSetting({ focus_lock_enabled: true }); }}
+              style={styles.confirmBtn}
+              testID="focus-lock-confirm-button"
+            >
+              <Text style={styles.confirmBtnText}>Turn on</Text>
+            </Pressable>
+            <Pressable onPress={() => setLockConfirmOpen(false)} style={styles.confirmGhost} testID="focus-lock-cancel-button">
+              <Text style={styles.confirmGhostText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <Modal transparent visible={recapOpen} animationType="slide" onRequestClose={() => setRecapOpen(false)}>
         <View style={styles.modalWrap}>
@@ -321,6 +413,30 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 28, fontWeight: "800", color: colors.onSurface, marginTop: 4 },
   statLabel: { fontSize: 12, color: colors.onSurfaceMuted, fontWeight: "600" },
   sectionTitle: { fontSize: 18, fontWeight: "700", color: colors.onSurface, marginTop: spacing.xl, marginBottom: spacing.md },
+  settingsCard: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg, paddingHorizontal: spacing.md },
+  settingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: spacing.md, gap: spacing.md },
+  settingRowBorder: { borderTopWidth: 1, borderTopColor: colors.border },
+  settingLabelWrap: { flex: 1 },
+  settingLabel: { fontSize: 16, fontWeight: "700", color: colors.onSurface },
+  settingSub: { fontSize: 12, color: colors.onSurfaceMuted, marginTop: 2, lineHeight: 17 },
+  settingWarn: {
+    backgroundColor: "#FEF2F2", borderRadius: radius.md, borderWidth: 1, borderColor: "#FECACA",
+    padding: spacing.md, marginBottom: spacing.md,
+  },
+  settingWarnText: { fontSize: 12, color: "#7F1D1D", lineHeight: 17, fontWeight: "600" },
+  confirmWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: spacing.lg },
+  confirmCard: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, width: "100%", alignItems: "center" },
+  confirmEmoji: { fontSize: 44 },
+  confirmTitle: { fontSize: 20, fontWeight: "800", color: colors.onSurface, marginTop: spacing.sm },
+  confirmText: { fontSize: 14, color: colors.onSurfaceMuted, textAlign: "center", marginTop: spacing.sm, lineHeight: 20 },
+  confirmBtn: {
+    backgroundColor: colors.error, borderRadius: radius.pill, paddingVertical: 14,
+    paddingHorizontal: spacing.xl, marginTop: spacing.lg, minHeight: 48, justifyContent: "center",
+  },
+  confirmBtnText: { color: "#FFF", fontWeight: "800", fontSize: 16 },
+  confirmGhost: { paddingVertical: spacing.md, minHeight: 44, justifyContent: "center" },
+  confirmGhostText: { color: colors.onSurfaceMuted, fontWeight: "700" },
+
   freezeCard: {
     marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.lg,
     borderWidth: 2, borderColor: "#BFDBFE",

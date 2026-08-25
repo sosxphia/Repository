@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import * as KeepAwake from "expo-keep-awake";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { apiFetch } from "@/src/lib/api";
 import { colors, spacing, radius } from "@/src/lib/theme";
@@ -50,6 +50,8 @@ export default function Timer() {
   const intervalRef = useRef<any>(null);
   const runningRef = useRef(false);
   const awayAtRef = useRef<number | null>(null);
+  const [lockEnabled, setLockEnabled] = useState(true);
+  const lockEnabledRef = useRef(true);
 
   useEffect(() => {
     return () => {
@@ -63,6 +65,17 @@ export default function Timer() {
   };
 
   useEffect(() => { loadToday(); }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      apiFetch("/settings")
+        .then((s) => {
+          setLockEnabled(s.focus_lock_enabled);
+          lockEnabledRef.current = s.focus_lock_enabled;
+        })
+        .catch(() => {});
+    }, []),
+  );
 
   const clearTimer = () => {
     runningRef.current = false;
@@ -88,7 +101,7 @@ export default function Timer() {
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
-      if (!runningRef.current) return;
+      if (!runningRef.current || !lockEnabledRef.current) return;
       if (state === "background" || state === "inactive") {
         if (awayAtRef.current === null) awayAtRef.current = Date.now();
         return;
@@ -226,13 +239,14 @@ export default function Timer() {
       </View>
 
       {/* Focus Lock warning */}
-      <View style={[styles.lockCard, running && styles.lockCardActive]} testID="focus-lock-banner">
-        <Text style={styles.lockTitle}>
-          {running ? "🔒 Focus Lock is ON" : "🔒 Focus Lock is always on"}
+      <View style={[styles.lockCard, running && lockEnabled && styles.lockCardActive, !lockEnabled && styles.lockCardOff]} testID="focus-lock-banner">
+        <Text style={[styles.lockTitle, !lockEnabled && styles.lockTitleOff]}>
+          {!lockEnabled ? "🔓 Focus Lock is off" : running ? "🔒 Focus Lock is ON" : "🔒 Focus Lock is on"}
         </Text>
-        <Text style={styles.lockText}>
-          Leave the app for more than 60 seconds during a session and your tree will die. Quick
-          interruptions under a minute are forgiven.
+        <Text style={[styles.lockText, !lockEnabled && styles.lockTextOff]}>
+          {!lockEnabled
+            ? "You can leave the app during a session. Turn Focus Lock back on in Profile → Settings."
+            : "Leave the app for more than 60 seconds during a session and your tree will die. Quick interruptions under a minute are forgiven."}
         </Text>
       </View>
 
@@ -456,6 +470,9 @@ const styles = StyleSheet.create({
     padding: spacing.md, marginBottom: spacing.sm,
   },
   lockCardActive: { backgroundColor: "#FEE2E2", borderColor: "#FCA5A5" },
+  lockCardOff: { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+  lockTitleOff: { color: colors.onSurface },
+  lockTextOff: { color: colors.onSurfaceMuted },
   lockTitle: { fontSize: 14, fontWeight: "800", color: "#B91C1C" },
   lockText: { fontSize: 12, color: "#7F1D1D", marginTop: 4, lineHeight: 17 },
   forgivenBanner: {

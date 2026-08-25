@@ -652,6 +652,31 @@ async def focus_sessions_today(authorization: Optional[str] = Header(None)):
         "focus_lock_best": int(user.get("focus_lock_best", 0)),
     }
 
+# ---------- Settings ----------
+class SettingsUpdate(BaseModel):
+    notifications_enabled: Optional[bool] = None
+    focus_lock_enabled: Optional[bool] = None
+
+@api_router.get("/settings")
+async def get_settings(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    return {
+        "notifications_enabled": bool(user.get("notifications_enabled", True)),
+        "focus_lock_enabled": bool(user.get("focus_lock_enabled", True)),
+    }
+
+@api_router.patch("/settings")
+async def update_settings(payload: SettingsUpdate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    if updates:
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
+    fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return {
+        "notifications_enabled": bool(fresh.get("notifications_enabled", True)),
+        "focus_lock_enabled": bool(fresh.get("focus_lock_enabled", True)),
+    }
+
 # ---------- Friends ----------
 FRIEND_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -1181,6 +1206,14 @@ async def send_push(recipients: List[str], data: dict, idempotency_key: Optional
         return
     if "title" not in data or "message" not in data:
         raise ValueError("data must include title and message")
+    # Respect the per-user notification setting
+    opted_out = await db.users.find(
+        {"user_id": {"$in": recipients}, "notifications_enabled": False}, {"_id": 0, "user_id": 1}
+    ).to_list(len(recipients))
+    blocked = {u["user_id"] for u in opted_out}
+    recipients = [r for r in recipients if r not in blocked]
+    if not recipients:
+        return
     payload: dict = {"recipients": recipients, "data": data}
     if idempotency_key:
         payload["$idempotency_key"] = idempotency_key
