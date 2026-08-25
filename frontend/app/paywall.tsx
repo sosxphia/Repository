@@ -10,8 +10,8 @@ import { useSubscription } from "@/src/lib/revenuecat";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
 const PERKS = [
-  { icon: "close-circle-outline", text: "No ads after your focus sessions" },
   { icon: "ribbon-outline", text: "Golden PRO badge on the leaderboard" },
+  { icon: "sparkles-outline", text: "Early access to new features" },
   { icon: "heart-outline", text: "Support the app and keep it growing" },
 ];
 
@@ -75,7 +75,7 @@ export default function Paywall() {
         {isSubscribed ? (
           <View style={styles.activeCard} testID="paywall-active">
             <Text style={styles.activeTitle}>You&apos;re PRO 🎉</Text>
-            <Text style={styles.activeText}>Ads are off and your golden badge is live.</Text>
+            <Text style={styles.activeText}>Your golden badge is live on the leaderboard.</Text>
           </View>
         ) : isLoading ? (
           <ActivityIndicator color={colors.brandPrimary} size="large" style={{ marginTop: spacing.xl }} />
@@ -94,7 +94,7 @@ export default function Paywall() {
               {isPurchasing ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
-                <Text style={styles.buyText}>Go ad-free — {price}/month</Text>
+                <Text style={styles.buyText}>Go PRO — {price}/month</Text>
               )}
             </Pressable>
             {!identityReady && (
@@ -125,7 +125,7 @@ export default function Paywall() {
           <View style={styles.confirmCard} testID="paywall-confirm-modal">
             <Text style={styles.confirmTitle}>Start PRO?</Text>
             <Text style={styles.confirmText}>
-              {price}/month, cancel any time. Ads disappear right after your next focus session.
+              {price}/month, cancel any time. Your golden PRO badge appears on the leaderboard right away.
             </Text>
             <Pressable onPress={doPurchase} style={styles.confirmBtn} testID="paywall-confirm-button">
               <Text style={styles.confirmBtnText}>Confirm</Text>

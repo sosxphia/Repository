@@ -315,11 +315,11 @@ export default function Profile() {
 
             <View style={[styles.settingRow, styles.settingRowBorder]}>
               <View style={styles.settingLabelWrap}>
-                <Text style={styles.settingLabel}>Remove ads ✨</Text>
+                <Text style={styles.settingLabel}>SproutGoals PRO ✨</Text>
                 <Text style={styles.settingSub}>
                   {isSubscribed
-                    ? "PRO active — no ads after focus sessions"
-                    : "SproutGoals PRO: no ads after focus sessions + golden badge"}
+                    ? "PRO active — thanks for supporting the app"
+                    : "Golden PRO badge on the leaderboard + early features"}
                 </Text>
               </View>
               <Pressable
