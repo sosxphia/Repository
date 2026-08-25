@@ -7,7 +7,7 @@ This file is memory for interacting with the user's RevenueCat account via the i
 - play_app_id: app160af4cbef
 - entitlement_lookup_key: pro
 - offering_lookup_key: default
-- bundle_id: com.sproutly.study / package_name: com.sproutly.study (updated 2026-06; app identifiers renamed)
+- bundle_id: com.company.treeapp / package_name: com.company.treeapp (reverted 2026-06 to match google-services.json)
 - Packages (package -> product_id, current price):
   - $rc_monthly -> prodd15c4e46b9  ($2.99 / P1M, trial: none)
   - $rc_annual  -> prodf9d3ea9145  ($29.99 / P1Y, trial: none)

@@ -1,0 +1,34 @@
+{
+  "summary": "Bundle-id revert to com.company.treeapp verified end-to-end. 16/16 pytest cases pass (test_iteration_22.py). Config alignment: app.json valid JSON with name=Sproutly, slug=sproutly, scheme=sproutly, ios.bundleIdentifier=com.company.treeapp, android.package=com.company.treeapp, android.googleServicesFile=./google-services.json; google-services.json client[0].client_info.android_client_info.package_name=com.company.treeapp (matches). backend/.env APPLE_AUDIENCES=\"com.company.treeapp,host.exp.Exponent\" (matches). react-native-purchases NOT present in expo.plugins (confirmed left out). Backend health (via public preview URL): GET /api/ returns Sproutly API message; GET /api/auth/me with Bearer uitest_token_123 returns 200 for user_id=ui-test-user; POST /api/auth/apple with {\"identity_token\":\"garbage.jwt.token\"} returns 401 with detail starting 'Invalid Apple identity token'. Smoke regression: GET /api/plants/current, /api/settings, /api/focus-sessions/today, /api/friends/leaderboard, /api/streak-freezes/status all return 200. Frontend (Expo web preview, mobile 390x844 with localStorage sprout_session_token=uitest_token_123): Metro compiled cleanly, /garden loaded showing Sapling Oakley II 264 XP · 4 branches, all 5 tab bar entries render (Tree/Goals/Focus/Friends/Profile) with Expo-Router href navigation; navigated Goals (4/4 done, Daily Quest card), Friends (QR + friend code JPXDY8 + Leaderboard: UI Tester 264 XP / Ferny 90 XP), Profile (UI Tester, uitest@example.com, Weekly Recap 3 goals/75 min/0 bloomed). /paywall route loaded with 'Sproutly PRO' header, feature list (streak freeze, revive tree, PRO badge), 'Go PRO — $2.99/month' CTA and 'Restore purchases' link — RevenueCat preview flow intact. No React Native red screen; only benign console warnings ('shadow*' style deprecation and expo-notifications web token-listener notice, both pre-existing). No deprecated packages detected in scope. Cleanup: ui-test-user session token uitest_token_123 still valid post-run, plant plant_f950c13f4790 not touched by this iteration.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration_22.py",
+    "/app/test_reports/pytest/iteration_22_results.xml",
+    "/app/test_reports/iter22_garden.png",
+    "/app/test_reports/iter22_tab-goals.png",
+    "/app/test_reports/iter22_tab-friends.png",
+    "/app/test_reports/iter22_tab-profile.png",
+    "/app/test_reports/iter22_paywall.png"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "frontend/app.json:13,25,26 — ios.bundleIdentifier and android.package both correctly reverted to com.company.treeapp; googleServicesFile still points at ./google-services.json whose client package_name matches.",
+    "frontend/google-services.json:12 — package_name=com.company.treeapp (Firebase project tree-studying) is the source of truth the reverted bundle id realigns with.",
+    "backend/.env:3 — APPLE_AUDIENCES=\"com.company.treeapp,host.exp.Exponent\" now matches the iOS bundleIdentifier; backend restarted cleanly (supervisorctl shows RUNNING) and /api/auth/apple still rejects unsigned tokens with 401.",
+    "app.json plugins list contains expo-apple-authentication, expo-camera, expo-notifications, expo-secure-store, expo-web-browser, expo-splash-screen, expo-router — react-native-purchases correctly omitted (it has no config plugin and would crash Metro).",
+    "Expo Router tab bar uses href-based <a> anchors rather than testIDs (tab-tree/tab-goals/... testIDs are not present in the DOM). Not a regression — was already the case pre-revert. Consider adding testIDs to Tabs.Screen for future automation."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% for smoke flows"},
+  "seed_data_creation": "None. Only used pre-existing seeded ui-test-user + uitest_token_123 session. No writes performed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Bundle id is now com.company.treeapp again (matches google-services.json client package_name). APPLE_AUDIENCES already synced in backend/.env. Auth via localStorage['sprout_session_token']='uitest_token_123' (ui-test-user, session_token valid to 2026-09-01). Preview URL: https://grow-by-goals.preview.emergentagent.com. Tab bar links have NO testIDs on the anchors — navigate via URL (/garden, /goals, /focus, /friends, /profile) or by role/text. Paywall route: /paywall. Do NOT add react-native-purchases to expo.plugins (no config plugin, crashes Metro). DELETE /api/account is destructive — never call against ui-test-user or friend-test-user without seeding a throwaway first.",
+  "rca_of_issue": ""
+}
