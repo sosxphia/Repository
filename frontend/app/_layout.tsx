@@ -1,9 +1,11 @@
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { LogBox, Platform, Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import Purchases from "react-native-purchases";
 import * as Notifications from "expo-notifications";
 import * as Linking from "expo-linking";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -11,7 +13,16 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { AuthProvider, useAuth } from "@/src/context/AuthContext";
 import { registerForPush } from "@/src/lib/push";
+import { initializeRevenueCat, SubscriptionProvider, rcEnabled } from "@/src/lib/revenuecat";
 import { colors } from "@/src/lib/theme";
+
+const queryClient = new QueryClient();
+
+try {
+  initializeRevenueCat();
+} catch (err) {
+  console.warn("RevenueCat unavailable:", err);
+}
 
 LogBox.ignoreAllLogs(true);
 SplashScreen.preventAutoHideAsync();
@@ -40,6 +51,30 @@ function AuthGate() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const segments = useSegments();
+  const queryClient = useQueryClient();
+  const rcIdentityRef = useRef<string | null>(null);
+
+  // Bind RevenueCat identity to our backend user id on every auth path
+  useEffect(() => {
+    if (!rcEnabled) return;
+    (async () => {
+      try {
+        if (user?.user_id && rcIdentityRef.current !== user.user_id) {
+          const { customerInfo } = await Purchases.logIn(user.user_id);
+          rcIdentityRef.current = user.user_id;
+          queryClient.setQueryData(["revenuecat", "customer-info"], customerInfo);
+          queryClient.invalidateQueries({ queryKey: ["revenuecat"] });
+          console.log("[RevenueCat] identity bound:", customerInfo.originalAppUserId);
+        } else if (!user?.user_id && rcIdentityRef.current) {
+          await Purchases.logOut();
+          rcIdentityRef.current = null;
+          queryClient.invalidateQueries({ queryKey: ["revenuecat"] });
+        }
+      } catch (e) {
+        console.warn("[RevenueCat] identity error:", e);
+      }
+    })();
+  }, [user?.user_id, queryClient]);
 
   useEffect(() => {
     if (loading) return;
@@ -125,9 +160,13 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.surface }}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <AuthGate />
-        </AuthProvider>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <SubscriptionProvider>
+              <AuthGate />
+            </SubscriptionProvider>
+          </AuthProvider>
+        </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

@@ -11,6 +11,7 @@ import * as Clipboard from "expo-clipboard";
 import QRCode from "react-native-qrcode-svg";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { apiFetch } from "@/src/lib/api";
+import { useSubscription } from "@/src/lib/revenuecat";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
 type Me = { user_id: string; name: string; friend_code: string; qr_payload: string };
@@ -21,6 +22,7 @@ type Row = {
 type Req = { request_id: string; user_id: string; name: string };
 
 export default function Friends() {
+  const { isSubscribed } = useSubscription();
   const [me, setMe] = useState<Me | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [incoming, setIncoming] = useState<Req[]>([]);
@@ -285,6 +287,11 @@ export default function Friends() {
               <Text style={[styles.lbName, { flex: 1 }]} numberOfLines={1}>
                 {r.name}{r.is_me ? " (you)" : ""}{r.is_dead ? " 💔" : ""}
               </Text>
+              {r.is_me && isSubscribed && (
+                <View style={styles.proTag} testID="leaderboard-pro-badge">
+                  <Text style={styles.proTagText}>PRO</Text>
+                </View>
+              )}
               <Text style={[styles.lbValue, styles.lbNum]}>{r.xp}</Text>
               <Text style={[styles.lbValue, styles.lbNum]}>{r.streak_days}</Text>
               <Text style={[styles.lbValue, styles.lbNum]}>{r.focus_minutes_week}</Text>
@@ -380,6 +387,11 @@ const styles = StyleSheet.create({
   lbRank: { fontSize: 14, fontWeight: "800", color: colors.onSurface },
   lbName: { fontSize: 15, fontWeight: "700", color: colors.onSurface },
   lbValue: { fontSize: 14, fontWeight: "700", color: colors.onSurface },
+  proTag: {
+    backgroundColor: "#FBBF24", borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2,
+    marginRight: 6, borderWidth: 1, borderColor: "#D97706",
+  },
+  proTagText: { fontSize: 10, fontWeight: "800", color: "#7C2D12", letterSpacing: 0.5 },
   lbEmpty: { fontSize: 13, color: colors.onSurfaceMuted, marginTop: spacing.md },
   lbHint: { fontSize: 11, color: colors.onSurfaceMuted, marginTop: spacing.sm, fontWeight: "600" },
   scanWrap: { flex: 1, backgroundColor: "#000" },

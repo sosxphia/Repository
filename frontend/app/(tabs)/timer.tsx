@@ -6,6 +6,8 @@ import * as KeepAwake from "expo-keep-awake";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { apiFetch } from "@/src/lib/api";
+import { useSubscription } from "@/src/lib/revenuecat";
+import { useCompletionInterstitial } from "@/src/lib/ads";
 import { colors, spacing, radius } from "@/src/lib/theme";
 import {
   View,
@@ -31,6 +33,8 @@ const PRESETS = [
 
 export default function Timer() {
   const router = useRouter();
+  const { isSubscribed } = useSubscription();
+  const { preload, showIfReady } = useCompletionInterstitial(!isSubscribed);
   const [duration, setDuration] = useState(25); // minutes
   const [remaining, setRemaining] = useState(25 * 60); // seconds
   const [running, setRunning] = useState(false);
@@ -134,11 +138,14 @@ export default function Timer() {
       console.log("focus save err", e);
     }
     setRemaining(minutes * 60);
+    // Ad after the session is saved (skipped for PRO subscribers)
+    if (!isSubscribed) await showIfReady();
   };
 
   // Timer starts the moment a time is chosen
   const start = (minutes: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    preload();
     setLastXp(null);
     setForgiven(false);
     setCustomOpen(false);

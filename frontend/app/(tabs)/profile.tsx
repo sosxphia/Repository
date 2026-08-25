@@ -4,12 +4,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/src/context/AuthContext";
 import { apiFetch } from "@/src/lib/api";
 import { buyWithPayPal } from "@/src/lib/paypal";
 import { StreakCalendar } from "@/src/components/StreakCalendar";
+import { useSubscription } from "@/src/lib/revenuecat";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
 type Stats = {
@@ -36,6 +37,8 @@ type Recap = {
 
 export default function Profile() {
   const { user, signOut } = useAuth();
+  const router = useRouter();
+  const { isSubscribed } = useSubscription();
   const [stats, setStats] = useState<Stats | null>(null);
   const [recap, setRecap] = useState<Recap | null>(null);
   const [recapOpen, setRecapOpen] = useState(false);
@@ -44,6 +47,7 @@ export default function Profile() {
   const [buying, setBuying] = useState(false);
   const [settings, setSettings] = useState({ notifications_enabled: true, focus_lock_enabled: true });
   const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const purchaseRef = useRef<{ cancel: () => void } | null>(null);
 
   const saveSetting = async (patch: { notifications_enabled?: boolean; focus_lock_enabled?: boolean }) => {
@@ -121,6 +125,14 @@ export default function Profile() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.brandPrimary} />}
       >
         <View style={styles.headerCard}>
+          <Pressable
+            onPress={() => { Haptics.selectionAsync(); setSettingsOpen(true); }}
+            style={styles.cogBtn}
+            hitSlop={10}
+            testID="settings-cog-button"
+          >
+            <Ionicons name="settings-outline" size={22} color={colors.onSurfaceMuted} />
+          </Pressable>
           {user?.picture ? (
             <Image source={{ uri: user.picture }} style={styles.avatar} contentFit="cover" />
           ) : (
@@ -246,51 +258,6 @@ export default function Profile() {
           </>
         )}
 
-        {/* Settings */}
-        <Text style={styles.sectionTitle}>Settings</Text>
-        <View style={styles.settingsCard} testID="settings-card">
-          <View style={styles.settingRow}>
-            <View style={styles.settingLabelWrap}>
-              <Text style={styles.settingLabel}>Notifications</Text>
-              <Text style={styles.settingSub}>Streak reminders and friend requests</Text>
-            </View>
-            <Switch
-              value={settings.notifications_enabled}
-              onValueChange={(v) => saveSetting({ notifications_enabled: v })}
-              trackColor={{ true: colors.brandSecondary, false: colors.borderStrong }}
-              thumbColor="#FFFFFF"
-              testID="notifications-switch"
-            />
-          </View>
-
-          <View style={[styles.settingRow, styles.settingRowBorder]}>
-            <View style={styles.settingLabelWrap}>
-              <Text style={styles.settingLabel}>Focus Lock 🔒</Text>
-              <Text style={styles.settingSub}>
-                {settings.focus_lock_enabled
-                  ? "On — leaving the app during a focus session kills your tree"
-                  : "Off — you can leave the app during a focus session"}
-              </Text>
-            </View>
-            <Switch
-              value={settings.focus_lock_enabled}
-              onValueChange={toggleFocusLock}
-              trackColor={{ true: colors.error, false: colors.borderStrong }}
-              thumbColor="#FFFFFF"
-              testID="focus-lock-switch"
-            />
-          </View>
-
-          {settings.focus_lock_enabled && (
-            <View style={styles.settingWarn} testID="focus-lock-warning">
-              <Text style={styles.settingWarnText}>
-                ⚠️ While Focus Lock is on, leaving the app for more than 60 seconds during a focus
-                session will kill your tree. Interruptions under a minute are forgiven.
-              </Text>
-            </View>
-          )}
-        </View>
-
         <Pressable
           onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); signOut(); }}
           style={({ pressed }) => [styles.logoutBtn, pressed && { transform: [{ scale: 0.97 }] }]}
@@ -300,6 +267,83 @@ export default function Profile() {
           <Text style={styles.logoutText}>Sign out</Text>
         </Pressable>
       </ScrollView>
+
+      {/* Settings sheet */}
+      <Modal transparent visible={settingsOpen} animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
+        <View style={styles.modalWrap}>
+          <Pressable style={styles.backdrop} onPress={() => setSettingsOpen(false)} />
+          <View style={styles.settingsSheet} testID="settings-card">
+            <View style={styles.grabber} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Settings</Text>
+              <Pressable onPress={() => setSettingsOpen(false)} hitSlop={10} testID="settings-close-button">
+                <Ionicons name="close" size={24} color={colors.onSurfaceMuted} />
+              </Pressable>
+            </View>
+
+            <View style={styles.settingRow}>
+              <View style={styles.settingLabelWrap}>
+                <Text style={styles.settingLabel}>Notifications</Text>
+                <Text style={styles.settingSub}>Streak reminders and friend requests</Text>
+              </View>
+              <Switch
+                value={settings.notifications_enabled}
+                onValueChange={(v) => saveSetting({ notifications_enabled: v })}
+                trackColor={{ true: colors.brandSecondary, false: colors.borderStrong }}
+                thumbColor="#FFFFFF"
+                testID="notifications-switch"
+              />
+            </View>
+
+            <View style={[styles.settingRow, styles.settingRowBorder]}>
+              <View style={styles.settingLabelWrap}>
+                <Text style={styles.settingLabel}>Focus Lock 🔒</Text>
+                <Text style={styles.settingSub}>
+                  {settings.focus_lock_enabled
+                    ? "On — leaving the app during a focus session kills your tree"
+                    : "Off — you can leave the app during a focus session"}
+                </Text>
+              </View>
+              <Switch
+                value={settings.focus_lock_enabled}
+                onValueChange={toggleFocusLock}
+                trackColor={{ true: colors.error, false: colors.borderStrong }}
+                thumbColor="#FFFFFF"
+                testID="focus-lock-switch"
+              />
+            </View>
+
+            <View style={[styles.settingRow, styles.settingRowBorder]}>
+              <View style={styles.settingLabelWrap}>
+                <Text style={styles.settingLabel}>Remove ads ✨</Text>
+                <Text style={styles.settingSub}>
+                  {isSubscribed
+                    ? "PRO active — no ads after focus sessions"
+                    : "SproutGoals PRO: no ads after focus sessions + golden badge"}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => { setSettingsOpen(false); router.push("/paywall"); }}
+                style={[styles.proBtn, isSubscribed && { backgroundColor: colors.brandTertiary }]}
+                testID="manage-pro-button"
+              >
+                <Text style={[styles.proBtnText, isSubscribed && { color: colors.onBrandTertiary }]}>
+                  {isSubscribed ? "PRO" : "Upgrade"}
+                </Text>
+              </Pressable>
+            </View>
+
+            {settings.focus_lock_enabled && (
+              <View style={styles.settingWarn} testID="focus-lock-warning">
+                <Text style={styles.settingWarnText}>
+                  ⚠️ While Focus Lock is on, leaving the app for more than 60 seconds during a focus
+                  session will kill your tree. Interruptions under a minute are forgiven.
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* Focus Lock confirmation */}
       <Modal transparent visible={lockConfirmOpen} animationType="fade" onRequestClose={() => setLockConfirmOpen(false)}>
@@ -401,6 +445,18 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   scroll: { padding: spacing.lg, paddingBottom: spacing.xxl },
   headerCard: { alignItems: "center", marginBottom: spacing.xl },
+  cogBtn: { position: "absolute", top: 0, right: 0, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  settingsSheet: {
+    backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl,
+  },
+  sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm },
+  sheetTitle: { fontSize: 22, fontWeight: "800", color: colors.onSurface },
+  proBtn: {
+    backgroundColor: colors.brandPrimary, borderRadius: radius.pill,
+    paddingHorizontal: spacing.md, paddingVertical: 10, minHeight: 40, justifyContent: "center",
+  },
+  proBtnText: { color: colors.onBrandPrimary, fontWeight: "800", fontSize: 13 },
   avatar: { width: 96, height: 96, borderRadius: 48, borderWidth: 4, borderColor: colors.brandTertiary },
   name: { fontSize: 22, fontWeight: "700", color: colors.onSurface, marginTop: spacing.md },
   email: { fontSize: 13, color: colors.onSurfaceMuted, marginTop: 2 },

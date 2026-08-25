@@ -24,7 +24,9 @@
       "edgeToEdgeEnabled": true,
       "package": "com.company.treeapp",
       "googleServicesFile": "./google-services.json",
-      "permissions": ["android.permission.CAMERA"]
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -50,6 +52,14 @@
         "expo-camera",
         {
           "cameraPermission": "Scan a friend's QR code to add them"
+        }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "iosAppId": "ca-app-pub-5769184493980714~3209653620",
+          "userTrackingUsageDescription": "This lets us show ads that fit your interests"
         }
       ]
     ],
