@@ -8,7 +8,7 @@ import { apiFetch } from "./api";
  * Safe to call on every app open — tokens rotate and the backend upserts.
  * No-ops on web and inside Expo Go (push requires a real build).
  */
-export async function registerForPush(userId: string) {
+export async function registerForPush() {
   if (Platform.OS === "web") return;
   if (Constants.appOwnership === "expo") return; // Expo Go doesn't support push
   try {
@@ -18,7 +18,6 @@ export async function registerForPush(userId: string) {
     await apiFetch("/register-push", {
       method: "POST",
       body: JSON.stringify({
-        user_id: userId,
         platform: Platform.OS,
         device_token: String(tokenResp.data),
       }),

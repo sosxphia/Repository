@@ -85,7 +85,7 @@ function AuthGate() {
 
   // Register device push token on login / every app open
   useEffect(() => {
-    if (user) registerForPush(user.user_id);
+    if (user) registerForPush();
   }, [user]);
 
   // Push tap handlers + denied-permission nudge

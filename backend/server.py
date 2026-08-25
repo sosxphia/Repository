@@ -11,7 +11,6 @@ import uuid
 import secrets
 import httpx
 import jwt
-import stripe
 from jwt import PyJWKClient
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -79,22 +78,22 @@ class AppleAuthRequest(BaseModel):
     email: Optional[str] = None
 
 class GoalCreate(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=200)
 
 class GoalToggle(BaseModel):
     completed: bool
 
 class PlantCreate(BaseModel):
-    name: str
-    species: Optional[str] = "succulent"
+    name: str = Field(min_length=1, max_length=40)
+    species: Optional[str] = Field(default="succulent", max_length=40)
 
 class PlantReset(BaseModel):
-    name: Optional[str] = None
-    species: Optional[str] = "succulent"
+    name: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    species: Optional[str] = Field(default="succulent", max_length=40)
 
 class PlantUpdate(BaseModel):
-    note: Optional[str] = None
-    name: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=40)
 
 class DailyQuestToggle(BaseModel):
     completed: bool
@@ -189,14 +188,16 @@ async def auth_apple(payload: AppleAuthRequest):
     apple_sub = claims.get("sub")
     if not apple_sub:
         raise HTTPException(status_code=401, detail="Missing sub in Apple token")
-    token_email = claims.get("email")
-    email = token_email or (payload.email if payload.email else None)
+    # SECURITY: only trust the email Apple signed into the token. A client-supplied
+    # email must never be used to look up or link an existing account (takeover risk).
+    email = claims.get("email")
+    email_verified = str(claims.get("email_verified", "true")).lower() == "true"
     name = payload.name
 
-    # 1) lookup by apple_sub
+    # Accounts are matched on the Apple subject only
     existing = await db.users.find_one({"apple_sub": apple_sub}, {"_id": 0})
-    # 2) fallback lookup by email to link Apple sign-in with an existing Google user
-    if not existing and email:
+    # Link to an existing account only when Apple itself vouches for the email
+    if not existing and email and email_verified:
         existing = await db.users.find_one({"email": email}, {"_id": 0})
         if existing:
             await db.users.update_one({"user_id": existing["user_id"]}, {"$set": {"apple_sub": apple_sub}})
@@ -334,6 +335,9 @@ async def _check_and_kill_stale_plant(user):
 async def revive_plant(authorization: Optional[str] = Header(None)):
     """Bring the current dead tree back with all its progress (PRO benefit)."""
     user = await get_current_user(authorization)
+    month = now_utc().strftime("%Y-%m")
+    if user.get("last_revive_month") == month:
+        raise HTTPException(status_code=429, detail="You can revive one tree per month")
     plant = await db.plants.find_one(
         {"user_id": user["user_id"], "is_current": True, "is_dead": True}, {"_id": 0}
     )
@@ -345,7 +349,11 @@ async def revive_plant(authorization: Optional[str] = Header(None)):
     )
     await db.users.update_one(
         {"user_id": user["user_id"]},
-        {"$set": {"last_activity_date": now_utc(), "streak_days": max(1, int(user.get("streak_days", 0)))}},
+        {"$set": {
+            "last_activity_date": now_utc(),
+            "streak_days": max(1, int(user.get("streak_days", 0))),
+            "last_revive_month": month,
+        }},
     )
     fresh = await db.plants.find_one({"plant_id": plant["plant_id"]}, {"_id": 0})
     return await _serialize_plant(fresh)
@@ -618,10 +626,29 @@ async def toggle_daily_quest(quest_id: str, payload: DailyQuestToggle, authoriza
     return {"ok": True, "xp_delta": xp_delta}
 
 # ---------- Focus Sessions ----------
+DAILY_FOCUS_MINUTE_CAP = 720   # 12 h of credited focus per day
+DAILY_FOCUS_SESSION_CAP = 40   # sane upper bound on sessions per day
+MIN_SESSION_GAP_SECONDS = 30   # block replay bursts
+
 @api_router.post("/focus-sessions")
 async def create_focus_session(payload: FocusSessionCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     minutes = max(1, min(payload.duration_minutes, 240))
+
+    # Abuse guard: cap credited sessions/minutes per day and throttle rapid replays
+    day_start = now_utc().replace(hour=0, minute=0, second=0, microsecond=0)
+    todays = await db.focus_sessions.find(
+        {"user_id": user["user_id"], "created_at": {"$gte": day_start}},
+        {"_id": 0, "duration_minutes": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(DAILY_FOCUS_SESSION_CAP + 1)
+    if len(todays) >= DAILY_FOCUS_SESSION_CAP:
+        raise HTTPException(status_code=429, detail="Daily focus session limit reached")
+    if todays and (now_utc() - todays[0]["created_at"].replace(tzinfo=timezone.utc)).total_seconds() < MIN_SESSION_GAP_SECONDS:
+        raise HTTPException(status_code=429, detail="Slow down — finish a real session first")
+    credited = sum(int(t.get("duration_minutes", 0)) for t in todays)
+    if credited + minutes > DAILY_FOCUS_MINUTE_CAP:
+        raise HTTPException(status_code=429, detail="Daily focus minute limit reached")
+
     xp = minutes * 2
     doc = {
         "session_id": f"fs_{uuid.uuid4().hex[:12]}",
@@ -1050,13 +1077,21 @@ push_http = httpx.AsyncClient(
 )
 
 class RegisterPushBody(BaseModel):
-    user_id: str
     platform: str  # "android" | "ios"
     device_token: str
 
 @api_router.post("/register-push", status_code=201)
-async def register_push(body: RegisterPushBody):
-    resp = await push_http.post("/api/v1/push/users/register", json=body.model_dump())
+async def register_push(body: RegisterPushBody, authorization: Optional[str] = Header(None)):
+    # SECURITY: bind the device to the authenticated user; never trust a body user_id
+    user = await get_current_user(authorization)
+    if body.platform not in ("android", "ios"):
+        raise HTTPException(status_code=400, detail="Invalid platform")
+    payload = {
+        "user_id": user["user_id"],
+        "platform": body.platform,
+        "device_token": body.device_token[:512],
+    }
+    resp = await push_http.post("/api/v1/push/users/register", json=payload)
     if resp.status_code == 401:
         raise HTTPException(status_code=500, detail="EMERGENT_PUSH_KEY missing or invalid")
     if resp.status_code >= 500:
@@ -1137,12 +1172,16 @@ async def root():
 
 app.include_router(api_router)
 
+_cors_env = os.environ.get("CORS_ORIGINS", "").strip()
+_cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_origin_regex=None if _cors_origins else r"https://[a-z0-9-]+\.(preview\.)?emergentagent\.com",
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 @app.on_event("startup")

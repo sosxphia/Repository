@@ -1,0 +1,35 @@
+{
+  "summary": "Verified all 3 security fixes (SEC-001 Apple takeover, SEC-002 push auth, SEC-003 focus/revive rate-limits) plus hardening + full regression via a new 25-test pytest module and a mobile-viewport frontend smoke of all 5 tabs. All 25 backend tests pass. SEC-001: POST /api/auth/apple with a garbage identity_token + a client-supplied email matching ui-test-user returned 401, no session_token, and ui-test-user.apple_sub is still absent + email unchanged; code inspection of server.py L171-247 confirms email is only read from verified claims and gated by email_verified. SEC-002: unauthenticated /api/register-push → 401; authenticated with invalid platform → 400; authenticated request with a spoofed 'user_id':'someone-else' extra field is silently dropped by the RegisterPushBody pydantic model (only platform+device_token are declared) and the endpoint builds the upstream payload from the session user — upstream call returned 500 with placeholder EMERGENT_PUSH_KEY, which is documented-acceptable. push.ts + _layout.tsx confirm client sends only {platform, device_token}. SEC-003: 1st /api/focus-sessions returns 200 with xp_earned=2 + focus_lock_streak; an immediate second call returns 429 'Slow down — finish a real session first' (30s min gap). Revive: alive plant → 404; killed → 200 revive; second attempt same month → 429 'You can revive one tree per month'. Hardening: empty goal title → 422, 300-char title → 422, 41-char plant name → 422; app-level CORS (validated against 127.0.0.1:8001) does NOT return access-control-allow-origin for https://evil.com and correctly returns 'https://foo.preview.emergentagent.com' for a preview origin; no 'import stripe' remains in server.py. Regression: /api/auth/me, /api/plants/current, goals CRUD, /api/daily-quest, /api/focus-sessions/today, /api/settings GET+PATCH, /api/friends/me + requests + leaderboard, /api/streak-freezes/status+claim, /api/plants/focus-break — all 200. Frontend smoke on mobile 390x844: token seeded via localStorage, garden loads (Oakley II sapling 264 XP · 4 branches), all 5 tabs (Tree/Goals/Focus/Friends/Profile) navigate, Profile settings cog opens settings-card with notifications-switch present and close button works, Friends screen shows leaderboard (UI Tester 264 XP + Ferny 90 XP). Zero JS errors during nav (only expected 401 from unauthed pre-login fetches). Cleanup verified in Mongo post-run: ui-test-user has NO last_revive_month, NO last_freeze_claim_month, NO apple_sub, streak_freezes=0, focus_lock_streak=0; plant_f950c13f4790 (Oakley II) is_current:true is_dead:false; today's focus_sessions for ui-test-user were deleted (count=0).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_security_audit.py",
+    "/app/test_reports/pytest/security_audit_results.xml",
+    "/tmp/sec_garden.png",
+    "/tmp/sec_settings.png",
+    "/tmp/sec_focus.png"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py L172-204 (auth_apple): correct. `email = claims.get('email')` is only trusted when JWT verification passes and `email_verified` is truthy; the linking branch is gated on both. `payload.email` is never used for lookup. Fixes SEC-001 cleanly.",
+    "server.py L1079-1100 (register_push): RegisterPushBody only declares {platform, device_token}; pydantic drops the extra 'user_id' field silently and the upstream payload is built with `user_id: user['user_id']` from the session, so spoofing is impossible. Auth is enforced via get_current_user() first.",
+    "server.py L629-650 (create_focus_session): the three abuse guards (30s gap, 40 sessions/day cap, 720-min/day cap) all raise 429. Note the sort order is `.sort('created_at', -1)` and the gap check uses `todays[0]` — that is the newest row, so the check is correct. Good.",
+    "server.py L334-359 (revive_plant): monthly gate uses `now_utc().strftime('%Y-%m')` and short-circuits BEFORE the 404 check, which is the desired order for the SEC-003 rate-limit test.",
+    "server.py L1175-1185 (CORS): configured with `allow_origins=[]` when CORS_ORIGINS is empty and falls back to `allow_origin_regex=r'https://[a-z0-9-]+\\.(preview\\.)?emergentagent.com'` — Starlette handles this correctly at the app level (verified via 127.0.0.1:8001). NOTE: the public preview URL is fronted by a Cloudflare/K8s ingress that adds its own `access-control-allow-origin: *` on OPTIONS/GET regardless of the app response — this is infrastructure-managed and NOT an app-code regression. Any CORS assertion against the ingress URL will see the `*`.",
+    "server.py — no `import stripe` / `from stripe` remains. Removed cleanly."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_security_audit.py (new — 25 tests: SEC-001/002/003 + hardening + regression)"
+  ],
+  "success_rate": {"backend": "100% (25/25 pytest)", "frontend": "100% for smoke flows executed (5 tabs render, settings modal open/close, no JS errors)"},
+  "seed_data_creation": "None. Test-created records were cleaned up: one TEST_ goal was created and deleted inside the goals CRUD test; one streak-freeze claim was reverted by unsetting last_freeze_claim_month and decrementing streak_freezes back to 0; one focus_session insert was deleted via the module fixture. Post-run DB verification: ui-test-user has no apple_sub, no last_revive_month, no last_freeze_claim_month, streak_freezes=0, focus_lock_streak=0; plant_f950c13f4790 Oakley II is_current:true is_dead:false; today's focus_sessions.count for ui-test-user = 0.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New reusable pytest module at /app/backend/tests/test_security_audit.py. It expects EXPO_PUBLIC_BACKEND_URL in env (or defaults to grow-by-goals.preview.emergentagent.com) and MongoDB at mongodb://localhost:27017/test_database with ui-test-user + uitest_token_123 session seeded. IMPORTANT: CORS must be validated against http://127.0.0.1:8001 because the public preview ingress overwrites CORS headers with `*` — the app-code assertion via ingress is impossible. TestFocusLimits.test_normal_session_ok auto-sleeps up to 35s if a session was created in the last 30s to avoid tripping the SEC-003 gap; if running back-to-back with other suites that hit /api/focus-sessions, expect that pause. The push endpoint upstream fails with placeholder EMERGENT_PUSH_KEY (500 from '/api/v1/push/users/register') — the test accepts 201/500/502 which is the documented behaviour.",
+  "rca_of_issue": "N/A — no bugs found. The 3 security findings + 4 hardening items from the audit are all correctly fixed. The only 'surprise' during testing was that OPTIONS/GET responses at the public preview URL include `access-control-allow-origin: *` from the Cloudflare/K8s ingress, which masks the correct app-level behaviour; this is infrastructure, not app, and the app-level CORS was verified directly against 127.0.0.1:8001."
+}
