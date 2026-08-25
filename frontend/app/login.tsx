@@ -49,7 +49,7 @@ export default function Login() {
           </View>
           <View style={styles.featureRow}>
             <Text style={styles.featureEmoji}>🌸</Text>
-            <Text style={styles.featureText}>Grow a tree</Text>
+            <Text style={styles.featureText}>Grow a tree and improve the way you concentrate</Text>
           </View>
         </View>
 
