@@ -656,6 +656,7 @@ async def focus_sessions_today(authorization: Optional[str] = Header(None)):
 class SettingsUpdate(BaseModel):
     notifications_enabled: Optional[bool] = None
     focus_lock_enabled: Optional[bool] = None
+    strict_lock_enabled: Optional[bool] = None
 
 @api_router.get("/settings")
 async def get_settings(authorization: Optional[str] = Header(None)):
@@ -663,6 +664,7 @@ async def get_settings(authorization: Optional[str] = Header(None)):
     return {
         "notifications_enabled": bool(user.get("notifications_enabled", True)),
         "focus_lock_enabled": bool(user.get("focus_lock_enabled", True)),
+        "strict_lock_enabled": bool(user.get("strict_lock_enabled", True)),
     }
 
 @api_router.patch("/settings")
@@ -675,6 +677,7 @@ async def update_settings(payload: SettingsUpdate, authorization: Optional[str] 
     return {
         "notifications_enabled": bool(fresh.get("notifications_enabled", True)),
         "focus_lock_enabled": bool(fresh.get("focus_lock_enabled", True)),
+        "strict_lock_enabled": bool(fresh.get("strict_lock_enabled", True)),
     }
 
 # ---------- Friends ----------

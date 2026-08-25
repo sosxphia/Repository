@@ -45,12 +45,12 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [buying, setBuying] = useState(false);
-  const [settings, setSettings] = useState({ notifications_enabled: true, focus_lock_enabled: true });
+  const [settings, setSettings] = useState({ notifications_enabled: true, focus_lock_enabled: true, strict_lock_enabled: true });
   const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const purchaseRef = useRef<{ cancel: () => void } | null>(null);
 
-  const saveSetting = async (patch: { notifications_enabled?: boolean; focus_lock_enabled?: boolean }) => {
+  const saveSetting = async (patch: { notifications_enabled?: boolean; focus_lock_enabled?: boolean; strict_lock_enabled?: boolean }) => {
     Haptics.selectionAsync();
     setSettings((prev) => ({ ...prev, ...patch }));
     try {
@@ -310,6 +310,25 @@ export default function Profile() {
                 trackColor={{ true: colors.error, false: colors.borderStrong }}
                 thumbColor="#FFFFFF"
                 testID="focus-lock-switch"
+              />
+            </View>
+
+            <View style={[styles.settingRow, styles.settingRowBorder]}>
+              <View style={styles.settingLabelWrap}>
+                <Text style={styles.settingLabel}>Locked-in mode 🚫</Text>
+                <Text style={styles.settingSub}>
+                  {settings.strict_lock_enabled
+                    ? "Focus sessions take over the whole screen — quitting early kills your tree"
+                    : "Off — sessions run in the normal timer screen"}
+                </Text>
+              </View>
+              <Switch
+                value={settings.strict_lock_enabled}
+                onValueChange={(v) => saveSetting({ strict_lock_enabled: v })}
+                disabled={!settings.focus_lock_enabled}
+                trackColor={{ true: colors.brandSecondary, false: colors.borderStrong }}
+                thumbColor="#FFFFFF"
+                testID="strict-lock-switch"
               />
             </View>
 

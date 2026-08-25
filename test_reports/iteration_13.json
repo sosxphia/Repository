@@ -1,0 +1,32 @@
+{
+  "summary": "Full backend + frontend verification of Locked-in mode (strict_lock_enabled) for SproutGoals. Backend: 6/6 pytest tests PASS in /app/backend/tests/test_settings_strict_lock.py — GET /api/settings returns strict_lock_enabled=true by default, PATCH persists it alongside notifications_enabled and focus_lock_enabled, 401 on unauth, 422 on invalid bool type (array and unrecognisable string). Frontend: cog settings sheet shows the new 'Locked-in mode 🚫' row between Focus Lock and SproutGoals PRO with testID strict-lock-switch; toggling persists across sheet close/reopen; the switch becomes disabled (aria-disabled=true visually, RN Switch prop wired via `disabled={!settings.focus_lock_enabled}`) when Focus Lock is off. Timer with Locked-in ON: tapping preset-25 immediately renders focus-locked-screen with locked-timer-display '24:59' counting down, progress bar and give-up-button; tab bar is covered by the fullscreen Modal (verified via screenshot). Give-up cancel keeps focusing (overlay stays, 24:59→24:57). Give-up confirm posts /api/plants/focus-break, closes overlay, shows focus-lock-death-modal with 'Oakley II died'. 1-min custom session with strict ON: overlay counted 00:59→0, overlay auto-closed, focus-history-card shows 1 new row and xp-banner reads '+2 XP watered your plant 🌱'. Locked-in OFF (set via PATCH /api/settings): preset tap runs the normal timer-display (24:58) with the timer-toggle-button (Stop) visible and NO overlay. Code inspection for GuidedAccessSheet: correctly gated by `Platform.OS==='ios' && lockEnabled && strictLock && !guideHidden` (timer.tsx:179), AsyncStorage key sprout_hide_guided_access matches GUIDE_HIDDEN_KEY constant, onNeverShow persists '1' and still calls beginSession(m). Cleanup: plant_f950c13f4790 (Oakley II) is alive and ui-test-user settings are all-true.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_settings_strict_lock.py",
+    "/app/test_reports/pytest/settings_strict_lock_results.xml",
+    "/tmp/locked_overlay.png",
+    "/tmp/death_modal.png",
+    "/tmp/completion.png",
+    "/tmp/strict_off.png"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "timer.tsx:174 — beginSession() opens the locked overlay via `if (lockEnabledRef.current && strictLock) setLockedOpen(true)`. This reads lockEnabledRef.current (a ref, up-to-date) but strictLock (state) — if strictLock changes between render and beginSession the older captured value would be used. In practice useFocusEffect refreshes strictLock on tab focus so it's fine, but consider mirroring strictLock into a ref (strictLockRef.current) for consistency with lockEnabledRef.",
+    "FocusLockOverlay.tsx:21 — outer Modal has onRequestClose={() => {}} which correctly swallows Android hardware back; combined with `no back, exit only via give-up-confirm` requirement this is correct. Good.",
+    "profile.tsx:328 — Switch `disabled={!settings.focus_lock_enabled}` correctly cascades the disabled state; when a user turns Focus Lock off, strict-lock-switch stops responding to taps. Verified.",
+    "server.py:670-681 — PATCH /api/settings uses model_dump(exclude_none=True) so passing only strict_lock_enabled does not clobber other fields. The response always returns all three booleans defaulting to True — matches the frontend expectation `s.strict_lock_enabled ?? true`."
+  ],
+  "updated_files": ["/app/backend/tests/test_settings_strict_lock.py"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% (all listed flows verified)"},
+  "seed_data_creation": "None. Existing seed retained. Cleanup verified: plant_f950c13f4790 (Oakley II) alive, ui-test-user has notifications_enabled=true, focus_lock_enabled=true, strict_lock_enabled=true.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Auth: set localStorage.setItem('sprout_session_token','uitest_token_123') on /login FIRST then navigate to app routes — hitting /profile or /timer before setting the token will 401 and redirect to /login. Switch's aria-checked is NOT exposed by React Native Web (returns None in Playwright); verify Switch state by functional persistence (close/reopen sheet) or by reading /api/settings via fetch. The FocusLockOverlay is a top-level Modal so on Playwright it does cover the tab bar; the tabs remain in the DOM but are visually and interactively covered. The 1-min custom completion path takes ~65s to complete — plan for the wait.",
+  "rca_of_issue": "N/A — this iteration verified a new feature (strict Locked-in mode) with no bugs found."
+}

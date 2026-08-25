@@ -5,7 +5,10 @@ import * as Haptics from "expo-haptics";
 import * as KeepAwake from "expo-keep-awake";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiFetch } from "@/src/lib/api";
+import { FocusLockOverlay } from "@/src/components/FocusLockOverlay";
+import { GuidedAccessSheet } from "@/src/components/GuidedAccessSheet";
 import { colors, spacing, radius } from "@/src/lib/theme";
 import {
   View,
@@ -22,6 +25,7 @@ import {
 } from "react-native";
 
 const GRACE_SECONDS = 60;
+const GUIDE_HIDDEN_KEY = "sprout_hide_guided_access";
 
 const PRESETS = [
   { label: "Pomodoro 🍅: 25 mins", minutes: 25 },
@@ -52,6 +56,14 @@ export default function Timer() {
   const awayAtRef = useRef<number | null>(null);
   const [lockEnabled, setLockEnabled] = useState(true);
   const lockEnabledRef = useRef(true);
+  const [strictLock, setStrictLock] = useState(true);
+  const [lockedOpen, setLockedOpen] = useState(false);
+  const [guideMinutes, setGuideMinutes] = useState<number | null>(null);
+  const [guideHidden, setGuideHidden] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(GUIDE_HIDDEN_KEY).then((v) => setGuideHidden(v === "1")).catch(() => {});
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -72,6 +84,7 @@ export default function Timer() {
         .then((s) => {
           setLockEnabled(s.focus_lock_enabled);
           lockEnabledRef.current = s.focus_lock_enabled;
+          setStrictLock(s.strict_lock_enabled ?? true);
         })
         .catch(() => {});
     }, []),
@@ -80,6 +93,7 @@ export default function Timer() {
   const clearTimer = () => {
     runningRef.current = false;
     setRunning(false);
+    setLockedOpen(false);
     if (intervalRef.current) clearInterval(intervalRef.current);
     KeepAwake.deactivateKeepAwake().catch(() => {});
   };
@@ -136,8 +150,7 @@ export default function Timer() {
     setRemaining(minutes * 60);
   };
 
-  // Timer starts the moment a time is chosen
-  const start = (minutes: number) => {
+  const beginSession = (minutes: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setLastXp(null);
     setForgiven(false);
@@ -158,6 +171,18 @@ export default function Timer() {
         return r - 1;
       });
     }, 1000);
+    if (lockEnabledRef.current && strictLock) setLockedOpen(true);
+  };
+
+  // Strict mode on iOS: offer the Guided Access guide before locking in
+  const start = (minutes: number) => {
+    if (Platform.OS === "ios" && lockEnabled && strictLock && !guideHidden) {
+      Haptics.selectionAsync();
+      setCustomOpen(false);
+      setGuideMinutes(minutes);
+      return;
+    }
+    beginSession(minutes);
   };
 
   const startCustom = () => {
@@ -357,6 +382,35 @@ export default function Timer() {
       </View>
       </ScrollView>
     </KeyboardAvoidingView>
+
+      {/* Locked full-screen focus mode */}
+      <FocusLockOverlay
+        visible={lockedOpen && running}
+        mins={mins}
+        secs={secs}
+        pct={pct}
+        minutes={duration}
+        onGiveUp={killTree}
+      />
+
+      {/* iOS Guided Access helper before locking in */}
+      <GuidedAccessSheet
+        visible={guideMinutes !== null}
+        minutes={guideMinutes ?? 0}
+        onStart={() => {
+          const m = guideMinutes ?? 25;
+          setGuideMinutes(null);
+          beginSession(m);
+        }}
+        onCancel={() => setGuideMinutes(null)}
+        onNeverShow={() => {
+          const m = guideMinutes ?? 25;
+          setGuideHidden(true);
+          AsyncStorage.setItem(GUIDE_HIDDEN_KEY, "1").catch(() => {});
+          setGuideMinutes(null);
+          beginSession(m);
+        }}
+      />
 
       {/* Tree died — Focus Lock broken */}
       <Modal transparent visible={deathOpen} animationType="fade" onRequestClose={() => setDeathOpen(false)}>
