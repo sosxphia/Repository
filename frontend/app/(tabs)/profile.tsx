@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl, Modal, Share, Platform, Alert, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -8,7 +8,6 @@ import { useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/src/context/AuthContext";
 import { apiFetch } from "@/src/lib/api";
-import { buyWithPayPal } from "@/src/lib/paypal";
 import { StreakCalendar } from "@/src/components/StreakCalendar";
 import { useSubscription } from "@/src/lib/revenuecat";
 import { colors, spacing, radius } from "@/src/lib/theme";
@@ -48,7 +47,7 @@ export default function Profile() {
   const [settings, setSettings] = useState({ notifications_enabled: true, focus_lock_enabled: true, strict_lock_enabled: true });
   const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const purchaseRef = useRef<{ cancel: () => void } | null>(null);
+  const [freezeClaimable, setFreezeClaimable] = useState(true);
 
   const saveSetting = async (patch: { notifications_enabled?: boolean; focus_lock_enabled?: boolean; strict_lock_enabled?: boolean }) => {
     Haptics.selectionAsync();
@@ -79,6 +78,7 @@ export default function Profile() {
       setStats(s);
       setRecap(r);
       apiFetch("/settings").then(setSettings).catch(() => {});
+      apiFetch("/streak-freezes/status").then((f) => setFreezeClaimable(!!f.claimable)).catch(() => {});
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -87,25 +87,29 @@ export default function Profile() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const buyFreeze = async () => {
-    if (buying) {
-      // Tap again to stop waiting
-      purchaseRef.current?.cancel();
-      setBuying(false);
+  const claimFreeze = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (!isSubscribed) {
+      router.push("/paywall");
       return;
     }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setBuying(true);
-    purchaseRef.current = buyWithPayPal("streak_freeze", (result) => {
-      setBuying(false);
-      if (result === "completed") {
+    try {
+      const res = await apiFetch("/streak-freezes/claim", { method: "POST" });
+      if (res.granted) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         if (Platform.OS !== "web") Alert.alert("❄️ Streak Freeze added!", "Your tree is protected for one missed day.");
-        load();
-      } else if (result === "error" && Platform.OS !== "web") {
-        Alert.alert("Oops", "Could not start PayPal checkout. Please try again.");
+      } else if (Platform.OS !== "web") {
+        Alert.alert("Already claimed", "You've claimed this month's freeze. The next one unlocks next month.");
       }
-    });
+      setFreezeClaimable(false);
+      await load();
+    } catch (e: any) {
+      console.log("claim freeze err", e);
+      Alert.alert("Couldn't claim freeze", e?.message || "Please try again in a moment.");
+    } finally {
+      setBuying(false);
+    }
   };
 
   const badges = [
@@ -219,7 +223,10 @@ export default function Profile() {
               <View style={styles.freezeHeader}>
                 <View style={{ flex: 1, paddingRight: spacing.md }}>
                   <Text style={styles.freezeTitle}>❄️ Streak Freeze</Text>
-                  <Text style={styles.freezeSub}>Miss a day and your tree dies — a freeze covers one missed day automatically.</Text>
+                  <Text style={styles.freezeSub}>
+                    Miss a day and your tree dies — a freeze covers one missed day automatically.
+                    PRO members claim one free freeze every month.
+                  </Text>
                 </View>
                 <View style={styles.freezeCount}>
                   <Text style={styles.freezeCountVal} testID="freeze-count">{stats?.streak_freezes ?? 0}</Text>
@@ -227,20 +234,29 @@ export default function Profile() {
                 </View>
               </View>
               <Pressable
-                onPress={buyFreeze}
-                style={({ pressed }) => [styles.freezeBtn, pressed && { transform: [{ scale: 0.97 }] }, buying && { backgroundColor: "#64748B" }]}
+                onPress={claimFreeze}
+                disabled={buying || (isSubscribed && !freezeClaimable)}
+                style={({ pressed }) => [
+                  styles.freezeBtn,
+                  pressed && { transform: [{ scale: 0.97 }] },
+                  (buying || (isSubscribed && !freezeClaimable)) && { backgroundColor: "#64748B" },
+                ]}
                 testID="buy-freeze-button"
               >
                 {buying ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : !isSubscribed ? (
                   <>
-                    <ActivityIndicator color="#FFF" size="small" />
-                    <Text style={styles.freezeBtnText}>Waiting for PayPal… tap to cancel</Text>
+                    <Ionicons name="star" size={18} color="#FFF" />
+                    <Text style={styles.freezeBtnText}>Unlock monthly freezes with PRO</Text>
+                  </>
+                ) : freezeClaimable ? (
+                  <>
+                    <Ionicons name="snow" size={18} color="#FFF" />
+                    <Text style={styles.freezeBtnText}>Claim this month&apos;s freeze</Text>
                   </>
                 ) : (
-                  <>
-                    <Ionicons name="logo-paypal" size={18} color="#FFF" />
-                    <Text style={styles.freezeBtnText}>Get one · $1.99 with PayPal</Text>
-                  </>
+                  <Text style={styles.freezeBtnText}>Claimed — next one next month ❄️</Text>
                 )}
               </Pressable>
             </LinearGradient>
@@ -334,7 +350,7 @@ export default function Profile() {
 
             <View style={[styles.settingRow, styles.settingRowBorder]}>
               <View style={styles.settingLabelWrap}>
-                <Text style={styles.settingLabel}>SproutGoals PRO ✨</Text>
+                <Text style={styles.settingLabel}>Sproutly PRO ✨</Text>
                 <Text style={styles.settingSub}>
                   {isSubscribed
                     ? "PRO active — thanks for supporting the app"
@@ -436,7 +452,7 @@ export default function Profile() {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 try {
                   await Share.share({
-                    message: `This week on SproutGoals 🌷\n✅ ${recap?.goals_completed ?? 0} goals crushed\n🕥 ${recap?.focus_minutes ?? 0} focus minutes\n🌸 ${recap?.plants_bloomed ?? 0} plants bloomed\n🔥 ${recap?.current_streak ?? 0}-day streak!`,
+                    message: `This week on Sproutly 🌷\n✅ ${recap?.goals_completed ?? 0} goals crushed\n🕥 ${recap?.focus_minutes ?? 0} focus minutes\n🌸 ${recap?.plants_bloomed ?? 0} plants bloomed\n🔥 ${recap?.current_streak ?? 0}-day streak!`,
                   });
                 } catch {}
               }}

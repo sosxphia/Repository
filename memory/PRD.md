@@ -1,4 +1,4 @@
-# SproutGoals — Product Requirements
+# Sproutly — Product Requirements
 
 ## One-liner
 Cutesy, gamified mobile app where completing goals and focus sessions grows a virtual plant. Each plant progresses through stages: seed → sprout → sapling → bloom.
@@ -60,7 +60,7 @@ Tactile / Playful (Personality 4) — cream #FFFCF6, sunshine yellow #F59E0B, em
 ## Tree Revive (June 2026)
 - $2.99 PayPal purchase revives the dead current tree with FULL restore (same XP/branches/age; streak NOT restored). PAYPAL_PRODUCTS catalog in server.py {streak_freeze $1.99, tree_revive $2.99}.
 - POST /api/paypal/orders now accepts {product}; tree_revive requires a dead current plant (400 otherwise), stores plant_id on payment. Capture grants per product; revive also sets last_activity_date=now so stale-check doesn't re-kill.
-- Frontend: shared /app/frontend/src/lib/paypal.ts buyWithPayPal(product, onResult) helper (profile freeze flow refactored onto it). Memorial card: "Revive {name} · $2.99" (testID revive-button) + ghost "Or replant from seed (free)" (testID replant-button).
+- Frontend: shared /app/frontend/src/lib/paypal.ts buyWithPayPal(product, onResult) helper (profile freeze flow refactored onto it). Memorial card: "Revive {name} · $2.99" (testID revive-button) + ghost "Or replant from seed" (testID replant-button).
 - Tested: revive order creation, unknown-product 400, mocked-capture full-restore idempotency, 17/17 existing PayPal tests pass, UI screenshots.
 
 ## Emergent Managed Push Notifications (June 2026)

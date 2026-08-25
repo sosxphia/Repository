@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 14 critical bug FIXED and re-verified. POST /api/plants/revive is now implemented at /app/backend/server.py L333-351 and behaves correctly: 200 + serialized plant when the current tree is dead (is_dead cleared, died_at nulled, revived_at persisted in DB, user.last_activity_date refreshed within ~1s so _check_and_kill_stale_plant will not re-kill), 404 'No dead tree to revive' when the current tree is alive, 401 without Bearer, and GET /api/plants/current subsequently returns the revived alive tree. All 12 backend tests in /app/backend/tests/test_revenuecat_migration.py pass (parametrised PayPal-404 x4 + core-endpoints + freeze auth x2 + freeze status + freeze claim-once-then-blocks + revive auth + revive-404 + revive-happy-path). NOTE: _serialize_plant (server.py L261-278) does NOT include revived_at in its API response body — the field IS persisted to Mongo but the frontend cannot observe revived_at through /plants/current or /plants/revive. Minor: consider adding revived_at to the serializer if the UI ever needs it. Frontend Garden dead-tree flow verified end-to-end: after marking plant_f950c13f4790 dead in Mongo, loading /(tabs)/garden renders the memorial card with dead-tree-title 'Oakley II withered away…' and the revive-button showing 'Revive Oakley II with PRO' (non-PRO copy, as expected — RevenueCat pro entitlement does not persist across preview browser sessions per iteration_14 context). Tapping revive-button correctly routes non-PRO users to /paywall (garden.tsx L150-153) rather than hitting the API. The PRO API path itself was proven end-to-end via the pytest revive_dead_tree_returns_alive_serialized_plant test (kill in Mongo → POST → 200 → serialized alive plant → confirm GET /plants/current alive → confirm DB revived_at set). Alert error handling verified in code: garden.tsx L161 Alert.alert('Revive failed', ...) inside the catch, and profile.tsx L109 Alert.alert(\"Couldn't claim freeze\", ...) inside the catch — both correctly imported (Alert is in the react-native import list of both files). Quick regression PASSED: all four /api/paypal/* routes return 404; grep confirms no PayPal string anywhere; paywall renders '$2.99/month' with 4 PRO perks (freeze + revive + badge + support); Profile buy-freeze-button reads 'Unlock monthly freezes with PRO' and routes non-PRO to /paywall; all 5 tabs (Tree/Goals/Focus/Friends/Profile) render without redscreens or 5xx. Freeze claim happy path unchanged: first POST /streak-freezes/claim → {granted:true, month, streak_freezes:1, last_freeze_claim_month set}; second POST same month → {granted:false, reason:'already_claimed_this_month'}. FocusLockOverlay black-screen structural fix (single Modal + platform-conditional deferred setState) unchanged since iteration_14 (verified by grep — one <Modal> only in FocusLockOverlay.tsx). Cleanup DONE: plant_f950c13f4790 restored ALIVE (is_dead:false, died_at unset, revived_at unset); ui-test-user streak_freezes=0, last_freeze_claim_month unset.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/plants/current, POST /api/plants/revive",
+        "issue": "_serialize_plant (server.py L261-278) does not include revived_at in the response, though the field is persisted in Mongo. Harmless today because no UI reads it, but the review request called out revived_at as observable — add it to the serializer if the UI needs to display 'Revived on…' in the future."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_revenuecat_migration.py",
+    "/app/test_reports/pytest/revenuecat_migration_results.xml",
+    "/tmp/garden_dead.png",
+    "/tmp/garden_after_revive.png",
+    "/tmp/profile_view.png"
+  ],
+  "action_items": [
+    "Optional: extend _serialize_plant in server.py to include revived_at so the UI can display it (only if product wants a 'Revived on X' string).",
+    "Optional (already noted in iteration_14): PRO entitlement in RevenueCat Browser Mode does not persist across preview browser sessions, so any PRO-only UI branch (Garden revive-with-PRO copy, Profile 'Claim this month's freeze' green CTA) is not observable in Playwright without an actual in-preview purchase. Both API paths ARE verified directly via pytest — see TestReviveEndpoint and TestStreakFreezes in test_revenuecat_migration.py."
+  ],
+  "critical_code_review_comments": [
+    "server.py L333-351 — POST /plants/revive correctly gated on Bearer, requires is_current+is_dead, updates plant AND user.last_activity_date+streak_days atomically so the stale-plant sweeper cannot immediately re-kill. 404 when there is no dead tree. Good fix.",
+    "server.py L261-278 — _serialize_plant omits revived_at. Persisted-to-DB-but-not-exposed is a minor observability gap.",
+    "garden.tsx L148-165 — reviveTree: correct PRO gate → /paywall, correct try/catch with user-facing Alert on failure, correct load() refresh on success.",
+    "profile.tsx L90-113 — claimFreeze: correct PRO gate → /paywall, granted/not-granted branches, and Alert on catch. On web the granted/already-claimed Alerts are intentionally suppressed (Platform.OS !== 'web') which is fine because the copy under the button already reflects state after load()."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_revenuecat_migration.py"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% for the non-PRO paths; PRO revive+claim paths verified via backend tests"},
+  "seed_data_creation": "None. Cleanup verified: plant_f950c13f4790 (Oakley II) alive (is_dead:false, died_at/revived_at unset); ui-test-user streak_freezes=0, last_freeze_claim_month unset.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All migration + revive + freeze-claim work is complete and passing. If a future iteration adds a 'Revived on…' string to the memorial card or any tree-detail screen, extend server.py _serialize_plant to include revived_at (currently persisted but not returned). iOS-specific black-screen timing on give-up/timer-quit (450-550ms Modal-dismiss delay in timer.tsx L114/405/413 + single-Modal FocusLockOverlay) still requires QA on a real iOS device — not reproducible in headless Playwright. RevenueCat 'pro' entitlement does not persist across preview browser sessions, so any PRO-copy assertion in the UI must be done via a fresh in-preview simulated purchase, or the API can be exercised directly with the uitest_token_123 Bearer as we did here.",
+  "rca_of_issue": "N/A — the iteration_14 critical bug (POST /api/plants/revive missing) is fully resolved. Endpoint present in server.py L333-351, all revive tests pass, garden.tsx Alert-on-error path exists."
+}

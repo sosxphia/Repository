@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Modal, Pressable, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
@@ -16,6 +16,10 @@ type Props = {
 /** Full-screen locked focus mode — covers the tab bar, no back, exit kills the tree. */
 export function FocusLockOverlay({ visible, mins, secs, pct, minutes, onGiveUp }: Props) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    if (!visible) setConfirmOpen(false);
+  }, [visible]);
 
   return (
     <Modal visible={visible} animationType="fade" onRequestClose={() => {}} testID="focus-locked-screen">
@@ -48,9 +52,8 @@ export function FocusLockOverlay({ visible, mins, secs, pct, minutes, onGiveUp }
         >
           <Text style={styles.giveUpText}>Give up</Text>
         </Pressable>
-      </LinearGradient>
 
-      <Modal transparent visible={confirmOpen} animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
+      {confirmOpen && (
         <View style={styles.confirmWrap}>
           <View style={styles.confirmCard} testID="give-up-confirm-modal">
             <Text style={styles.confirmEmoji}>💔</Text>
@@ -70,7 +73,8 @@ export function FocusLockOverlay({ visible, mins, secs, pct, minutes, onGiveUp }
             </Pressable>
           </View>
         </View>
-      </Modal>
+      )}
+      </LinearGradient>
     </Modal>
   );
 }
@@ -98,7 +102,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14, alignItems: "center", minHeight: 48, justifyContent: "center",
   },
   giveUpText: { color: "#FFF", fontWeight: "800", fontSize: 15 },
-  confirmWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: spacing.lg },
+  confirmWrap: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: spacing.lg },
   confirmCard: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, width: "100%", alignItems: "center" },
   confirmEmoji: { fontSize: 44 },
   confirmTitle: { fontSize: 20, fontWeight: "800", color: colors.onSurface, marginTop: spacing.sm, textAlign: "center" },

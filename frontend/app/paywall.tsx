@@ -10,9 +10,10 @@ import { useSubscription } from "@/src/lib/revenuecat";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
 const PERKS = [
+  { icon: "snow-outline", text: "A free streak freeze every month" },
+  { icon: "heart-outline", text: "Revive your tree any time it dies" },
   { icon: "ribbon-outline", text: "Golden PRO badge on the leaderboard" },
-  { icon: "sparkles-outline", text: "Early access to new features" },
-  { icon: "heart-outline", text: "Support the app and keep it growing" },
+  { icon: "sparkles-outline", text: "Support the app and keep it growing" },
 ];
 
 export default function Paywall() {
@@ -59,7 +60,7 @@ export default function Paywall() {
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={["#FBBF24", "#F59E0B"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
           <Text style={styles.heroEmoji}>🌟</Text>
-          <Text style={styles.heroTitle}>SproutGoals PRO</Text>
+          <Text style={styles.heroTitle}>Sproutly PRO</Text>
           <Text style={styles.heroSub}>Focus without interruptions</Text>
         </LinearGradient>
 
@@ -75,7 +76,7 @@ export default function Paywall() {
         {isSubscribed ? (
           <View style={styles.activeCard} testID="paywall-active">
             <Text style={styles.activeTitle}>You&apos;re PRO 🎉</Text>
-            <Text style={styles.activeText}>Your golden badge is live on the leaderboard.</Text>
+            <Text style={styles.activeText}>Freezes, revives and your golden badge are all active.</Text>
           </View>
         ) : isLoading ? (
           <ActivityIndicator color={colors.brandPrimary} size="large" style={{ marginTop: spacing.xl }} />
@@ -125,7 +126,7 @@ export default function Paywall() {
           <View style={styles.confirmCard} testID="paywall-confirm-modal">
             <Text style={styles.confirmTitle}>Start PRO?</Text>
             <Text style={styles.confirmText}>
-              {price}/month, cancel any time. Your golden PRO badge appears on the leaderboard right away.
+              {price}/month, cancel any time. Freezes, revives and your golden badge unlock right away.
             </Text>
             <Pressable onPress={doPurchase} style={styles.confirmBtn} testID="paywall-confirm-button">
               <Text style={styles.confirmBtnText}>Confirm</Text>

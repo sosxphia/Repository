@@ -32,7 +32,7 @@ export default function Login() {
           <View style={styles.emojiWrap}>
             <Text style={styles.bigEmoji}>🌱</Text>
           </View>
-          <Text style={styles.title}>SproutGoals</Text>
+          <Text style={styles.title}>Sproutly</Text>
           <Text style={styles.subtitle}>
             Grow a plant by crushing goals. Every task waters your sprout.
           </Text>

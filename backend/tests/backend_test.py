@@ -1,4 +1,4 @@
-"""SproutGoals backend regression tests."""
+"""Sproutly backend regression tests."""
 import os
 import uuid
 import pytest
@@ -58,7 +58,7 @@ class TestHealthAndAuth:
     def test_root(self):
         r = requests.get(f"{API}/")
         assert r.status_code == 200
-        assert r.json().get("message") == "SproutGoals API"
+        assert r.json().get("message") == "sproutly API"
 
     def test_session_invalid(self):
         r = requests.post(f"{API}/auth/session", json={"session_id": "bogus_id_xyz"})

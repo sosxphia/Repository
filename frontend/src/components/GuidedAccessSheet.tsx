@@ -13,7 +13,7 @@ type Props = {
 const STEPS = [
   "Open Settings → Accessibility → Guided Access and turn it on (one time only)",
   "Come back here and triple-click the side button",
-  "Tap Start — your phone stays locked in SproutGoals",
+  "Tap Start — your phone stays locked in Sproutly",
   "Calls still ring, and triple-click again to end it",
 ];
 
@@ -26,7 +26,7 @@ export function GuidedAccessSheet({ visible, minutes, onStart, onCancel, onNever
         <View style={styles.sheet} testID="guided-access-sheet">
           <View style={styles.grabber} />
           <Text style={styles.emoji}>🔒</Text>
-          <Text style={styles.title}>Lock your phone into SproutGoals</Text>
+          <Text style={styles.title}>Lock your phone into Sproutly</Text>
           <Text style={styles.sub}>
             {minutes} min of focus. Guided Access lets iOS block app switching for real —
             emergency calls still come through.

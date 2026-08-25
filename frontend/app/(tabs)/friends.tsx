@@ -177,7 +177,7 @@ export default function Friends() {
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />}
       >
-        <Text style={styles.h1}>Friends 🌳</Text>
+        <Text style={styles.h1}>Friends</Text>
         <Text style={styles.subtitle}>Grow together and compare progress</Text>
 
         {/* My QR code */}
@@ -300,7 +300,7 @@ export default function Friends() {
           {rows.length <= 1 && (
             <Text style={styles.lbEmpty}>Add a friend to see how your trees stack up 🌱</Text>
           )}
-          {rows.length > 1 && <Text style={styles.lbHint}>Long-press a friend to remove them</Text>}
+          {rows.length > 1 && <Text style={styles.lbHint}>Hold down on a friend to remove them</Text>}
         </View>
       </ScrollView>
 

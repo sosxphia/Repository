@@ -1,0 +1,50 @@
+{
+  "summary": "PayPal→RevenueCat migration + iOS black-screen structural fix verified. Backend: 10/10 tests in /app/backend/tests/test_revenuecat_migration.py pass except the added revive-endpoint check which exposed a CRITICAL bug — POST /api/plants/revive returns HTTP 405 (Method Not Allowed) because the endpoint is not implemented in server.py, yet garden.tsx line 156 calls it. The PRO revive flow WILL FAIL for real users. Everything else works: all four /api/paypal/* routes return 404, no PayPal string in server.py, backend .env or the frontend tree (grep confirmed empty). New /api/streak-freezes/status + /api/streak-freezes/claim are correct — first claim returns {granted:true, month, streak_freezes:1} and writes last_freeze_claim_month to the users doc; second claim in same calendar month returns {granted:false, reason:'already_claimed_this_month'}; both endpoints 401 without Bearer token; status reports {claimable:false} after a claim. Frontend: Profile Streak Freeze card no longer mentions PayPal; non-PRO ui-test-user (RevenueCat customerInfo has NO active 'pro' entitlement in the web preview because the previous test-store purchase state does not persist across browser sessions) sees 'Unlock monthly freezes with PRO' — tapping buy-freeze-button routes to /paywall as coded (profile.tsx L92-95). Paywall renders correctly: '$2.99/month' price, all four PRO perks list monthly freeze + revive + golden badge + support (paywall.tsx L12-17), Restore purchases button present, Confirm modal wired. All tabs (garden, timer, goals, friends, profile) render without crashes and no PayPal text anywhere. Bug fix 2 (iOS black screen) verified STRUCTURALLY via code inspection since iOS timing cannot be reproduced in the web preview: FocusLockOverlay.tsx contains exactly ONE <Modal> (the outer full-screen overlay); the give-up confirm is now a plain <View style={styles.confirmWrap}> with absoluteFillObject (L56-76) — NO NESTED MODAL. timer.tsx L114 defers setDeathOpen with setTimeout(...550ms on iOS, 100ms otherwise); L405 and L413 defer beginSession with 450ms on iOS, 50ms otherwise. The confirm flow is: give-up-button → give-up-confirm-modal → give-up-confirm-button calls setConfirmOpen(false) then onGiveUp() (parent kills tree and closes overlay, then death modal opens deferred). give-up-cancel-button just closes the in-modal confirm view keeping the session running. Cleanup DONE: ui-test-user has streak_freezes=0, no last_freeze_claim_month, notifications/focus_lock/strict_lock all true; plant_f950c13f4790 (Oakley II) is alive.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/plants/revive",
+        "issue": "Endpoint missing from server.py — returns HTTP 405 (Method Not Allowed) because only PATCH /api/plants/{plant_id} matches the path. garden.tsx L156 calls apiFetch('/plants/revive', {method:'POST'}) when a PRO user taps the revive-button on the dead-tree card. The PRO revive flow is broken end-to-end.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "PRO user revives a dead tree",
+        "issue": "garden.tsx reviveTree() → POST /api/plants/revive → 405. On error the tree stays dead and no user feedback is shown (catch just console.logs).",
+        "affected_testIDs": ["revive-button"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_revenuecat_migration.py",
+    "/app/test_reports/pytest/revenuecat_migration_results.xml",
+    "/tmp/profile_after_claim.png"
+  ],
+  "action_items": [
+    "CRITICAL: Add POST /api/plants/revive to /app/backend/server.py. It should require Bearer auth, find the current is_dead plant for the user, set is_dead=False + unset died_at, and return the re-serialized plant. Probably also worth checking last_activity_date so the tree does not instantly die again via _check_and_kill_stale_plant.",
+    "Optional: profile.tsx L108 `catch (e) { console.log('claim freeze err', e) }` and garden.tsx L159 revive catch both swallow errors silently — surface a user-facing toast/Alert on failure so the 405 above would not be invisible in production.",
+    "Optional: paywall.tsx currently gates the buy button on identityReady but the Preview mode banner (L104-108) fires under __DEV__ — safe to ship but confirm production build does not show the simulated-purchases warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py — no /plants/revive route exists; the frontend depends on it. This is the primary defect this iteration.",
+    "FocusLockOverlay.tsx — confirmed only ONE Modal (outer) and the confirm dialog is a positioned <View>, so the iOS 'two modals colliding' cause of the black screen is eliminated. Good fix.",
+    "timer.tsx L114/L405/L413 — the platform-conditional setTimeout(...550/450ms on iOS) waits for the outer Modal's dismiss animation to finish before opening the death Modal / starting the next session. Correct pattern.",
+    "profile.tsx L237-259 — freezeBtn disabled state gates on `(buying || (isSubscribed && !freezeClaimable))`, which is correct: non-PRO users still see an enabled button that routes to /paywall. Good UX.",
+    "garden.tsx L275-313 — the memorial card only renders when current.is_dead, and reviveTree correctly routes non-PRO users to /paywall (L150-153) before hitting the API. So the revive 405 above only affects users with an active 'pro' entitlement.",
+    "revenuecat.tsx L77-78 — isSubscribed depends on entitlements.active['pro']. Confirmed the entitlement identifier matches the deployed RevenueCat product. In the web preview the previous test-purchase does not persist between sessions, so ui-test-user shows as non-PRO on a fresh browser."
+  ],
+  "updated_files": ["/app/backend/tests/test_revenuecat_migration.py"],
+  "success_rate": {"backend": "90% (9/10 — revive endpoint missing)", "frontend": "100% for the non-PRO paths; PRO paths verified via code inspection"},
+  "seed_data_creation": "None. Cleanup verified: ui-test-user.streak_freezes=0, last_freeze_claim_month unset, notifications_enabled/focus_lock_enabled/strict_lock_enabled all true; plant_f950c13f4790 (Oakley II) is alive.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "After the main agent adds POST /api/plants/revive, re-run backend/tests/test_revenuecat_migration.py::TestReviveEndpoint. Note: RevenueCat 'isSubscribed' state does NOT persist across browser sessions in the Expo web preview, so the Profile 'Claim this month's freeze' text and Garden 'Revive — free with PRO' text CANNOT be observed by simply setting the sprout_session_token; the UI will always show the non-PRO copy until a fresh in-preview purchase is completed. The freeze-claim POST itself is testable directly against the API. iOS black-screen timing (450-550ms Modal dismiss) is unverifiable in Playwright and must be QA'd on a real device.",
+  "rca_of_issue": "POST /api/plants/revive is called by /app/frontend/app/(tabs)/garden.tsx line 156 inside reviveTree(), but /app/backend/server.py never registers that route. The nearest match is PATCH /plants/{plant_id}, which produces a 405 for POST. Reproduction: `curl -X POST -H 'Authorization: Bearer uitest_token_123' https://grow-by-goals.preview.emergentagent.com/api/plants/revive` → `{\"detail\":\"Method Not Allowed\"}` HTTP 405. Fix: add a route like `@api_router.post('/plants/revive')` that finds the user's is_current dead plant, clears is_dead + died_at, optionally resets last_activity_date to now so _check_and_kill_stale_plant won't re-kill it, and returns _serialize_plant(...)."
+}

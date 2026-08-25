@@ -77,7 +77,7 @@ class TestFriendsMe:
         assert d1["user_id"] == USER_A
         assert d1["name"] == "UI Tester"
         assert isinstance(d1["friend_code"], str) and len(d1["friend_code"]) == 6
-        assert d1["qr_payload"] == f"sproutgoals:friend:{d1['friend_code']}"
+        assert d1["qr_payload"] == f"sproutly:friend:{d1['friend_code']}"
         # Stability
         r2 = requests.get(f"{BASE_URL}/friends/me", headers=_auth(TOKEN_A))
         assert r2.json()["friend_code"] == d1["friend_code"]
@@ -123,7 +123,7 @@ class TestFriendRequests:
         # Unlink first so we can send a fresh request
         mongo.friends.delete_many({"user_id": {"$in": [USER_A, USER_B]}, "friend_id": {"$in": [USER_A, USER_B]}})
         mongo.friend_requests.delete_many({"from_user_id": {"$in": [USER_A, USER_B]}, "to_user_id": {"$in": [USER_A, USER_B]}})
-        payload = f"sproutgoals:friend:{self._b_code()}"
+        payload = f"sproutly:friend:{self._b_code()}"
         r = requests.post(f"{BASE_URL}/friends/requests", headers=_auth(TOKEN_A), json={"code": payload})
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "pending"

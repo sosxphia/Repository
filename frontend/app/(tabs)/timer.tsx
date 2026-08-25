@@ -109,7 +109,9 @@ export default function Timer() {
     } catch (e) {
       console.log("focus-break err", e);
     }
-    setDeathOpen(true);
+    // iOS needs the full-screen lock modal to finish dismissing before the next modal opens,
+    // otherwise the screen stays black.
+    setTimeout(() => setDeathOpen(true), Platform.OS === "ios" ? 550 : 100);
     loadToday();
   };
 
@@ -400,7 +402,7 @@ export default function Timer() {
         onStart={() => {
           const m = guideMinutes ?? 25;
           setGuideMinutes(null);
-          beginSession(m);
+          setTimeout(() => beginSession(m), Platform.OS === "ios" ? 450 : 50);
         }}
         onCancel={() => setGuideMinutes(null)}
         onNeverShow={() => {
@@ -408,7 +410,7 @@ export default function Timer() {
           setGuideHidden(true);
           AsyncStorage.setItem(GUIDE_HIDDEN_KEY, "1").catch(() => {});
           setGuideMinutes(null);
-          beginSession(m);
+          setTimeout(() => beginSession(m), Platform.OS === "ios" ? 450 : 50);
         }}
       />
 

@@ -49,7 +49,7 @@ export function BloomCelebration({ visible, plantId, plantName, species, xp, onC
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       await Share.share({
-        message: `🌸 My plant "${plantName}" just fully bloomed on SproutGoals! ${xp} XP watered by focus sessions & goals crushed 🌱✨${note.trim() ? `\n\n"${note.trim()}"` : ""}`,
+        message: `🌸 My plant "${plantName}" just fully bloomed on Sproutly! ${xp} XP watered by focus sessions & goals crushed 🌱✨${note.trim() ? `\n\n"${note.trim()}"` : ""}`,
       });
     } catch {}
   };

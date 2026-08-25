@@ -30,11 +30,11 @@
   "action_items": [
     "MINOR — fix typo `behaviour` → `behavior` on KeyboardAvoidingView (timer.tsx:189). Non-blocking, but keyboard-padding won't engage on iOS as-is.",
     "OPTIONAL cleanup — replace legacy `shadow*` style props with `boxShadow`/`elevation` and move Modal/View `pointerEvents` prop into `style.pointerEvents` to silence RN Web warnings.",
-    "OPTIONAL — leaderboard row uses onLongPress to remove a friend; consider adding a small (i) affordance since the 'Long-press a friend to remove them' hint is easy to miss."
+    "OPTIONAL — leaderboard row uses onLongPress to remove a friend; consider adding a small (i) affordance since the 'Hold down on a friend to remove them' hint is easy to miss."
   ],
   "critical_code_review_comments": [
     "server.py:661-672 _ensure_friend_code — 10-retry uniqueness loop over a 32^6 (~1B) space is fine; friend_code index is NOT declared unique in startup — a race between two concurrent /friends/me calls for two different users could theoretically issue duplicate codes. Recommend adding `db.users.create_index('friend_code', unique=True, sparse=True)` in startup for defense in depth.",
-    "server.py:698-749 send_friend_request — correctly parses `sproutgoals:friend:<CODE>` prefix (case-insensitive), upper-cases, length-validates, blocks self and already-friends, auto-accepts a reverse pending request, and idempotently returns `pending` on duplicate outgoing requests. Solid.",
+    "server.py:698-749 send_friend_request — correctly parses `Sproutly:friend:<CODE>` prefix (case-insensitive), upper-cases, length-validates, blocks self and already-friends, auto-accepts a reverse pending request, and idempotently returns `pending` on duplicate outgoing requests. Solid.",
     "server.py:800-836 leaderboard — sort key is (-xp, -streak_days, name.lower()) which is deterministic and matches spec. is_me flag & rank fill both correct.",
     "friends.tsx:33 useCameraPermissions is called at module scope — on web this hook can log a warning but does not crash. Consider gating behind Platform.OS !== 'web' if the warning becomes noisy.",
     "friends.tsx:97 respond() optimistically removes the request from state but does NOT re-add on failure; if the accept/decline POST returns 4xx/5xx the row silently disappears. Minor UX gap.",

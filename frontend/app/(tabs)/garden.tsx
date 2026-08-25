@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl, Pressable, ActivityIndicator,
-  Modal, TextInput, KeyboardAvoidingView, Platform,
+  Modal, TextInput, KeyboardAvoidingView, Platform, Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -9,7 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { apiFetch } from "@/src/lib/api";
-import { buyWithPayPal } from "@/src/lib/paypal";
+import { useSubscription } from "@/src/lib/revenuecat";
 import { colors, spacing, radius } from "@/src/lib/theme";
 import { STAGE_LABEL, Stage, emojiFor } from "@/src/lib/plant";
 import { BloomCelebration } from "@/src/components/BloomCelebration";
@@ -59,7 +59,7 @@ export default function Garden() {
   const [journalSaving, setJournalSaving] = useState(false);
   const [seasonOverride, setSeasonOverride] = useState<Season | "auto">("auto");
   const [reviving, setReviving] = useState(false);
-  const purchaseRef = useRef<{ cancel: () => void } | null>(null);
+  const { isSubscribed } = useSubscription();
   const scrollRef = useRef<ScrollView>(null);
   const [atBottom, setAtBottom] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
@@ -145,21 +145,23 @@ export default function Garden() {
     }
   };
 
-  const buyRevive = () => {
-    if (reviving) {
-      purchaseRef.current?.cancel();
-      setReviving(false);
+  const reviveTree = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (!isSubscribed) {
+      router.push("/paywall");
       return;
     }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setReviving(true);
-    purchaseRef.current = buyWithPayPal("tree_revive", (result) => {
+    try {
+      await apiFetch("/plants/revive", { method: "POST" });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await load();
+    } catch (e: any) {
+      console.log("revive err", e);
+      Alert.alert("Revive failed", e?.message || "Please try again in a moment.");
+    } finally {
       setReviving(false);
-      if (result === "completed") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        load();
-      }
-    });
+    }
   };
 
   const saveWelcomeName = async (skip = false) => {
@@ -261,7 +263,7 @@ export default function Garden() {
               {streak.streak_freezes === 0 && (
                 <Pressable
                   onPress={() => router.push("/(tabs)/profile")}
-                  style={[styles.riskBtn, { backgroundColor: "#0070BA" }]}
+                  style={[styles.riskBtn, { backgroundColor: colors.brandPrimary }]}
                   testID="risk-freeze-button"
                 >
                   <Text style={styles.riskBtnText}>❄️ Get a freeze</Text>
@@ -284,19 +286,21 @@ export default function Garden() {
               Your streak broke and the tree couldn't survive. Revive it with all its progress — or plant a fresh seed.
             </Text>
             <Pressable
-              onPress={buyRevive}
+              onPress={reviveTree}
               style={({ pressed }) => [styles.reviveBtn, pressed && { transform: [{ scale: 0.97 }] }, reviving && { backgroundColor: "#64748B" }]}
               testID="revive-button"
             >
               {reviving ? (
+                <ActivityIndicator color="#FFF" size="small" />
+              ) : isSubscribed ? (
                 <>
-                  <ActivityIndicator color="#FFF" size="small" />
-                  <Text style={styles.replantText}>Waiting for PayPal… tap to cancel</Text>
+                  <Ionicons name="heart" size={18} color="#FFF" />
+                  <Text style={styles.replantText}>Revive {current.name} — free with PRO</Text>
                 </>
               ) : (
                 <>
-                  <Ionicons name="logo-paypal" size={18} color="#FFF" />
-                  <Text style={styles.replantText}>💚 Revive {current.name} · $2.99</Text>
+                  <Ionicons name="star" size={18} color="#FFF" />
+                  <Text style={styles.replantText}>Revive {current.name} with PRO</Text>
                 </>
               )}
             </Pressable>
@@ -305,7 +309,7 @@ export default function Garden() {
               style={({ pressed }) => [styles.replantGhostBtn, pressed && { transform: [{ scale: 0.97 }] }]}
               testID="replant-button"
             >
-              <Text style={styles.replantGhostText}>Or replant from seed (free) 🌱</Text>
+              <Text style={styles.replantGhostText}>Or replant from seed 🌱</Text>
             </Pressable>
           </LinearGradient>
         ) : (
