@@ -316,95 +316,66 @@ function StumpDetail({
   );
 }
 
-// Wilted, grey dead tree — shown when the streak broke and the tree died
+// Withered sapling — what's left after the streak broke and the tree died
 function DeadTree({ width }: { width: number }) {
-  const H = 1000;
-  const GY = 880;
+  const H = 430;
+  const GY = 330;
   const cx = CANVAS_W / 2;
   const finalHeight = Math.round((H / CANVAS_W) * width);
-  const trunk = "#8C7A6B";
-  const trunkDark = "#5C5148";
-  const trunkLight = "#A99C8D";
-  const deadPalette: Palette = {
-    trunk, trunkDark, trunkLight,
-    leafBase: "#78716C", leafMain: "#A8A29E", leafLight: "#D6D3D1",
-    fruit: "#A8A29E", ground: "#E7E5E4", ground2: "#D6D3D1", sky: "#F5F1EA", canopyScale: 0,
-  };
-  const baseW = 64;
-  const topW = 32;
-  const topY = 230;
-  const midY = (topY + GY) / 2;
-  const midW = baseW * 0.78;
+  const stem = "#8C7A6B";
+  const stemDark = "#5C5148";
+  const leafDry = "#A8A29E";
+  const leafBrown = "#A16207";
+  // Sapling stays small and low: a bent, bare stem no taller than ~220px
+  const topY = GY - 220;
   return (
     <View style={{ width, height: finalHeight, alignSelf: "center" }} testID="dead-tree-svg">
       <Svg width={width} height={finalHeight} viewBox={`0 0 ${CANVAS_W} ${H}`}>
         {/* Overcast sky */}
         <Path d={`M0 0 H${CANVAS_W} V${H} H0 Z`} fill="#F5F1EA" />
         {/* Grey hills */}
-        <Ellipse cx={70} cy={GY + 50} rx={160} ry={45} fill="#D6D3D1" opacity={0.55} />
-        <Ellipse cx={CANVAS_W - 60} cy={GY + 40} rx={140} ry={38} fill="#D6D3D1" opacity={0.55} />
-        {/* Ground */}
-        <Ellipse cx={cx} cy={GY + 34} rx={220} ry={52} fill="#E7E5E4" />
-        <Ellipse cx={cx} cy={GY + 22} rx={190} ry={36} fill="#D6D3D1" />
+        <Ellipse cx={70} cy={GY + 46} rx={150} ry={38} fill="#D6D3D1" opacity={0.55} />
+        <Ellipse cx={CANVAS_W - 60} cy={GY + 38} rx={130} ry={32} fill="#D6D3D1" opacity={0.55} />
+        {/* Dry ground */}
+        <Ellipse cx={cx} cy={GY + 30} rx={210} ry={44} fill="#E7E5E4" />
+        <Ellipse cx={cx} cy={GY + 20} rx={180} ry={30} fill="#D6D3D1" />
+        {/* Cracked soil mound */}
+        <Ellipse cx={cx} cy={GY + 6} rx={78} ry={20} fill="#C7C1B8" />
+        <G stroke="#A8A29E" strokeWidth={2} fill="none" opacity={0.8} strokeLinecap="round">
+          <Path d={`M ${cx - 46} ${GY + 8} l 16 -6 l 12 6`} />
+          <Path d={`M ${cx + 20} ${GY + 12} l 14 -7 l 16 5`} />
+        </G>
 
-        {/* Trunk — tapered, grey-brown */}
+        {/* Thin bent stem */}
         <Path
-          d={`M ${cx - baseW / 2} ${GY}
-              Q ${cx - midW / 2 - 4} ${midY + 100}, ${cx - midW / 2} ${midY - 30}
-              Q ${cx - topW / 2 - 4} ${topY + 120}, ${cx - topW / 2 + 2} ${topY}
-              L ${cx + topW / 2 - 2} ${topY}
-              Q ${cx + topW / 2 + 4} ${topY + 120}, ${cx + midW / 2} ${midY - 30}
-              Q ${cx + midW / 2 + 4} ${midY + 100}, ${cx + baseW / 2} ${GY} Z`}
-          fill={trunk}
+          d={`M ${cx - 7} ${GY + 2}
+              C ${cx - 10} ${GY - 90}, ${cx + 14} ${topY + 80}, ${cx + 26} ${topY}
+              L ${cx + 15} ${topY - 2}
+              C ${cx + 3} ${topY + 78}, ${cx - 1} ${GY - 92}, ${cx + 6} ${GY + 2} Z`}
+          fill={stem}
         />
-        {/* Snapped jagged top */}
+        {/* Snapped tip */}
         <Path
-          d={`M ${cx - topW / 2 + 2} ${topY + 2}
-              L ${cx - topW * 0.22} ${topY - 26}
-              L ${cx - topW * 0.02} ${topY - 2}
-              L ${cx + topW * 0.18} ${topY - 32}
-              L ${cx + topW / 2 - 2} ${topY + 2} Z`}
-          fill={trunkDark}
+          d={`M ${cx + 15} ${topY} L ${cx + 20} ${topY - 26} L ${cx + 24} ${topY - 6} L ${cx + 27} ${topY + 1} Z`}
+          fill={stemDark}
         />
-        {/* Shading */}
-        <Path
-          d={`M ${cx - baseW / 2} ${GY}
-              Q ${cx - midW / 2 - 4} ${midY + 100}, ${cx - midW / 2} ${midY - 30}
-              Q ${cx - topW / 2 - 4} ${topY + 120}, ${cx - topW / 2 + 2} ${topY}
-              L ${cx - topW / 2 + 9} ${topY}
-              Q ${cx - midW / 2 + 6} ${midY - 30}, ${cx - midW / 2 + 4} ${midY + 100}
-              Q ${cx - baseW / 2 + 8} ${GY - 5}, ${cx - baseW / 2} ${GY} Z`}
-          fill={trunkDark}
-          opacity={0.45}
-        />
-        {/* Drooping bare branches */}
-        <G stroke={trunk} fill="none" strokeLinecap="round">
-          <Path d={`M ${cx - 24} 380 Q ${cx - 95} 366, ${cx - 138} 416`} strokeWidth={15} />
-          <Path d={`M ${cx - 100} 375 Q ${cx - 118} 392, ${cx - 122} 420`} strokeWidth={6} />
-          <Path d={`M ${cx + 24} 500 Q ${cx + 92} 490, ${cx + 130} 548`} strokeWidth={14} />
-          <Path d={`M ${cx + 95} 500 Q ${cx + 108} 516, ${cx + 108} 542`} strokeWidth={6} />
-          <Path d={`M ${cx - 24} 640 Q ${cx - 72} 636, ${cx - 98} 676`} strokeWidth={11} />
+        {/* Two bare drooping side shoots */}
+        <G stroke={stem} fill="none" strokeLinecap="round">
+          <Path d={`M ${cx - 4} ${GY - 150} Q ${cx - 48} ${GY - 154}, ${cx - 66} ${GY - 118}`} strokeWidth={7} />
+          <Path d={`M ${cx + 10} ${GY - 96} Q ${cx + 52} ${GY - 96}, ${cx + 70} ${GY - 62}`} strokeWidth={6} />
         </G>
-        {/* Broken branch stub */}
-        <Path d={`M ${cx + 20} 330 L ${cx + 52} 322 L ${cx + 50} 334 L ${cx + 20} 344 Z`} fill={trunkDark} />
-        {/* Empty bird hole */}
-        <BirdHole cx={cx} cy={560} r={13} palette={deadPalette} withBird={false} />
-        {/* Cracks */}
-        <G stroke={trunkDark} strokeWidth={2.5} fill="none" opacity={0.55} strokeLinecap="round">
-          <Path d={`M ${cx - 6} ${GY - 40} l -5 -34 l 7 -26 M ${cx - 11} ${GY - 74} l -9 -16`} />
-          <Path d={`M ${cx + 10} 430 l 4 -30 l -5 -22`} />
+        {/* Wilted, drooping leaves */}
+        <G opacity={0.9}>
+          <Ellipse cx={cx - 66} cy={GY - 106} rx={16} ry={7} fill={leafDry} transform={`rotate(72 ${cx - 66} ${GY - 106})`} />
+          <Ellipse cx={cx + 70} cy={GY - 50} rx={15} ry={6.5} fill={leafDry} transform={`rotate(74 ${cx + 70} ${GY - 50})`} />
+          <Ellipse cx={cx + 24} cy={topY + 26} rx={13} ry={6} fill={leafBrown} opacity={0.75} transform={`rotate(68 ${cx + 24} ${topY + 26})`} />
         </G>
-        {/* Root flares */}
-        <Path d={`M ${cx - baseW / 2 + 6} ${GY - 50} Q ${cx - baseW / 2 - 6} ${GY - 20}, ${cx - baseW / 2 - 38} ${GY + 4} L ${cx - baseW / 2 + 12} ${GY + 8} Z`} fill={trunk} />
-        <Path d={`M ${cx + baseW / 2 - 6} ${GY - 50} Q ${cx + baseW / 2 + 6} ${GY - 20}, ${cx + baseW / 2 + 38} ${GY + 4} L ${cx + baseW / 2 - 12} ${GY + 8} Z`} fill={trunk} />
-        {/* One last leaf hanging on */}
-        <Ellipse cx={cx + 126} cy={556} rx={9} ry={4.5} fill="#B45309" opacity={0.8} transform={`rotate(65 ${cx + 126} 556)`} />
         {/* Fallen dead leaves */}
         <G opacity={0.7}>
-          <Ellipse cx={cx - 90} cy={GY + 8} rx={9} ry={4} fill="#A16207" transform={`rotate(-15 ${cx - 90} ${GY + 8})`} />
-          <Ellipse cx={cx + 70} cy={GY + 14} rx={8} ry={4} fill="#92400E" transform={`rotate(20 ${cx + 70} ${GY + 14})`} />
-          <Ellipse cx={cx - 30} cy={GY + 18} rx={7} ry={3.5} fill="#A16207" transform={`rotate(40 ${cx - 30} ${GY + 18})`} />
-          <Ellipse cx={cx + 120} cy={GY + 6} rx={8} ry={4} fill="#78350F" transform={`rotate(-30 ${cx + 120} ${GY + 6})`} />
+          <Ellipse cx={cx - 60} cy={GY + 12} rx={9} ry={4} fill="#A16207" transform={`rotate(-15 ${cx - 60} ${GY + 12})`} />
+          <Ellipse cx={cx + 52} cy={GY + 16} rx={8} ry={4} fill="#92400E" transform={`rotate(20 ${cx + 52} ${GY + 16})`} />
+          <Ellipse cx={cx - 18} cy={GY + 20} rx={7} ry={3.5} fill="#A16207" transform={`rotate(40 ${cx - 18} ${GY + 20})`} />
+          <Ellipse cx={cx + 96} cy={GY + 10} rx={8} ry={4} fill="#78350F" transform={`rotate(-30 ${cx + 96} ${GY + 10})`} />
         </G>
       </Svg>
     </View>

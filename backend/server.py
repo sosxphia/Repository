@@ -766,14 +766,14 @@ async def friends_me(authorization: Optional[str] = Header(None)):
         "user_id": user["user_id"],
         "name": user.get("name") or "Friend",
         "friend_code": code,
-        "qr_payload": f"sproutgoals:friend:{code}",
+        "qr_payload": f"sproutly:friend:{code}",
     }
 
 @api_router.post("/friends/requests")
 async def send_friend_request(payload: FriendRequestCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     raw = (payload.code or "").strip()
-    if raw.lower().startswith("sproutgoals:friend:"):
+    if raw.lower().startswith(("sproutly:friend:", "sproutgoals:friend:")):
         raw = raw.split(":")[-1]
     code = raw.upper()
     if len(code) != 6:
@@ -1168,7 +1168,7 @@ async def _push_sweeper():
 
 @api_router.get("/")
 async def root():
-    return {"message": "SproutGoals API"}
+    return {"message": "Sproutly API"}
 
 app.include_router(api_router)
 

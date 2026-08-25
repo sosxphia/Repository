@@ -1,0 +1,22 @@
+{
+  "summary": "Iteration 19 — verified withered-sapling SVG viewBox tightening in TreeView.tsx DeadTree(). Dead state: dead-tree-svg container is now 340x406 (viewBox 0 0 360 430) vs prior ~944px — compact, no excess canvas. Sapling stem, snapped tip, drooping side shoots, wilted leaves, fallen dead leaves, cracked soil mound, hills all fully visible, not clipped. dead-tree-title / revive-button / replant-button all visible and reachable without long scroll. Alive regression: is_dead=false → tree-svg renders full 340x1738 sapling canopy+trunk, Oakley II Sapling 264 XP · 4 branches, and floating scroll-to-bottom button scrolls 0→1677→0 with icon direction flip. Cleanup: plant_f950c13f4790 left ALIVE (is_dead=false). No SVG errors, no console errors beyond a pre-existing 401 on unauthenticated first request (before token seeded) and RN web deprecation warnings (shadow*, pointerEvents) — same as prior iterations.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_19.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "TreeView.tsx DeadTree viewBox now correctly sized to 360x430 with GY=330 — sapling top at y=110 leaves ~110px sky headroom (comfortable, not empty). Content extends to GY+30 = ~360 for ground ellipse, leaving small ~70px canvas base which is used for the ground shading. Good tightening."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100%"},
+  "seed_data_creation": "Toggled plant_f950c13f4790 is_dead=true → tested → restored to is_dead=false as instructed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "ui-test-user token uitest_token_123. plant_f950c13f4790 (Oakley II, sapling, 264 XP, 4 branches) left alive. To reproduce dead state: mongosh test_database → db.plants.updateOne({plant_id:'plant_f950c13f4790'},{$set:{is_dead:true}}). Web session: localStorage.setItem('sprout_session_token','uitest_token_123'); navigate to /garden.",
+  "rca_of_issue": "N/A — feature verification, not a bug. Prior iteration_18 LOW finding (H=1000, GY=880 leaving ~944px mostly-empty canvas) is FIXED: H=430, GY=330 gives a compact 340x406px dead-tree container with the sapling occupying the full visible area."
+}

@@ -1,0 +1,46 @@
+{
+  "summary": "Rename to Sproutly + withered-sapling dead tree verified end-to-end. Backend rebrand ('Sproutly API' at GET /api/, friends/me returns 'sproutly:friend:<CODE>', POST /api/friends/requests accepts new+legacy+bare payloads) all pass (8/8 pytest). Frontend: no 'SproutGoals' string anywhere in login/garden/goals/timer/friends/profile tabs, login screen title reads 'Sproutly'. Dead-tree state (plant_f950c13f4790, is_dead=true) renders testID dead-tree-svg with dead-tree-title, revive-button and replant-button all visible and no SVG errors in console. Alive tree renders normally (testID tree-svg) after DB restore. 5 tabs load. expo-router scheme change didn't break navigation. Plant restored to is_dead=false, died_at=null; user has no last_revive_month/last_freeze_claim_month; all settings true. One minor UI concern: dead-tree-svg element measures 340x944px in the DOM (viewBox 360x1000 scaled to width 340), so the actual small sapling (~230px tall stem) sits at the bottom of a ~944px-tall container leaving a large empty sky/ground pad above it. Sapling shape (stem, drooping shoots, wilted grey/brown leaves, cracked soil) is correct but visually looks lost inside the oversized canvas.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "TreeView.DeadTree",
+        "issue": "SVG canvas is 340x944px but the withered sapling only occupies ~230px near the bottom, leaving a large empty grey sky area above. Consider reducing the SVG viewBox height (e.g. H≈420, GY≈320) or clipping so the rendered container matches the small-sapling intent. Reference: /app/frontend/src/components/TreeView.tsx:320-383 (H=1000, GY=880).",
+        "testID": "dead-tree-svg",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Garden (dead state)",
+        "issues": ["Tree canvas card below the memorial info card contains a lot of empty light-yellow/grey space around the small sapling because DeadTree still uses the full-tree viewBox (1000 tall). Consider reducing canvas height when isDead=true so the sapling feels intentionally small, not lost."]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sproutly_rename.py",
+    "/app/test_reports/pytest/sproutly_rename_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL/LOW: Shrink DeadTree SVG viewBox in /app/frontend/src/components/TreeView.tsx so the rendered container tightly wraps the ~230px sapling (currently 944px tall on a 390-wide viewport)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:776 correctly matches both prefixes with .lower() before stripping, so casing variants of legacy 'SproutGoals:friend:' also work — verified.",
+    "server.py:769 hardcodes 'sproutly:friend:' — good, single source of truth for QR payload.",
+    "app.json name/slug/scheme all updated consistently to 'sproutly'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sproutly_rename.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Refreshed expires_at on existing sessions uitest_token_123 and friendtest_token_123 by 7 days (they had drifted past current test date). No new data created. Cleanup done: plant_f950c13f4790 back to is_dead=false, died_at=null; ui-test-user has no last_revive_month/last_freeze_claim_month; notifications_enabled/focus_lock_enabled/strict_lock_enabled all true.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Session tokens uitest_token_123 / friendtest_token_123 are refreshed to expire ~2026-09-01. Plant plant_f950c13f4790 (Oakley II, 264 XP, sapling, 4 branches) is currently ALIVE. To retest dead state: db.plants.update_one({'plant_id':'plant_f950c13f4790'}, {'$set':{'is_dead': True}}). Backend rename pytest: /app/backend/tests/test_sproutly_rename.py (8/8 pass in <1s).",
+  "rca_of_issue": "N/A — feature works. Only cosmetic finding is dead-tree canvas dead-space, cause is that DeadTree() uses H=1000/GY=880 viewBox coordinates (matches the alive-tree canvas dimensions) even though the actual sapling drawing is intentionally small (topY=GY-230). Fix would be to reduce H (e.g. 420) and GY (e.g. 320) so the SVG naturally sizes down."
+}
