@@ -16,7 +16,8 @@ import { colors, spacing, radius } from "@/src/lib/theme";
 
 type Me = { user_id: string; name: string; friend_code: string; qr_payload: string };
 type Row = {
-  user_id: string; name: string; xp: number; streak_days: number;
+  user_id: string; name: string; real_name?: string; nickname?: string | null;
+  xp: number; streak_days: number;
   focus_minutes_week: number; is_dead: boolean; is_me: boolean; rank: number;
 };
 type Req = { request_id: string; user_id: string; name: string };
@@ -33,6 +34,14 @@ export default function Friends() {
   const [sending, setSending] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
+  // Nickname prompt: shown right after adding, and reusable from the leaderboard
+  const [nickTarget, setNickTarget] = useState<
+    { friendId: string | null; realName: string; requestId?: string; mode: "add" | "accept" | "edit" } | null
+  >(null);
+  const [nickInput, setNickInput] = useState("");
+  const [savingNick, setSavingNick] = useState(false);
+  const [actionRow, setActionRow] = useState<Row | null>(null);
+  const [pendingCode, setPendingCode] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -60,7 +69,7 @@ export default function Friends() {
     setRefreshing(false);
   };
 
-  const sendRequest = async (raw: string) => {
+  const sendRequest = async (raw: string, nickname?: string) => {
     const code = raw.trim();
     if (code.length < 6) {
       Alert.alert("Enter a code", "Friend codes are 6 characters long.");
@@ -70,7 +79,7 @@ export default function Friends() {
     try {
       const res = await apiFetch("/friends/requests", {
         method: "POST",
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, nickname: nickname?.trim() || undefined }),
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setCodeInput("");
@@ -80,6 +89,7 @@ export default function Friends() {
         Alert.alert("Request sent ✅", `${res.friend_name} needs to accept before you appear on each other's leaderboard.`);
       }
       load();
+      return res;
     } catch (e: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Couldn't send request", e?.message || "Please check the code and try again.");
@@ -88,11 +98,59 @@ export default function Friends() {
     }
   };
 
-  const respond = async (request_id: string, action: "accept" | "decline") => {
+  // Step 1 of adding: ask what to call them, then send the request
+  const promptNicknameForCode = (code: string) => {
+    const clean = code.trim();
+    if (clean.length < 6) {
+      Alert.alert("Enter a code", "Friend codes are 6 characters long.");
+      return;
+    }
     Haptics.selectionAsync();
-    setIncoming((prev) => prev.filter((r) => r.request_id !== request_id));
+    setNickInput("");
+    setNickTarget({ friendId: null, realName: clean.toUpperCase(), mode: "add" });
+    setPendingCode(clean);
+  };
+
+  const saveNickname = async (override?: string) => {
+    if (!nickTarget) return;
+    const nickname = (override ?? nickInput).trim();
+    setSavingNick(true);
     try {
-      await apiFetch(`/friends/requests/${request_id}/${action}`, { method: "POST" });
+      if (nickTarget.mode === "add" && pendingCode) {
+        await sendRequest(pendingCode, nickname);
+      } else if (nickTarget.mode === "accept" && nickTarget.requestId) {
+        await apiFetch(`/friends/requests/${nickTarget.requestId}/accept`, {
+          method: "POST",
+          body: JSON.stringify({ nickname: nickname || null }),
+        });
+        load();
+      } else if (nickTarget.friendId) {
+        await apiFetch(`/friends/${nickTarget.friendId}/nickname`, {
+          method: "PATCH",
+          body: JSON.stringify({ nickname: nickname || null }),
+        });
+        load();
+      }
+      setNickTarget(null);
+      setPendingCode(null);
+      setNickInput("");
+    } catch (e: any) {
+      Alert.alert("Couldn't save nickname", e?.message || "Please try again.");
+    } finally {
+      setSavingNick(false);
+    }
+  };
+
+  const respond = async (req: Req, action: "accept" | "decline") => {
+    Haptics.selectionAsync();
+    if (action === "accept") {
+      setNickInput("");
+      setNickTarget({ friendId: req.user_id, realName: req.name, requestId: req.request_id, mode: "accept" });
+      return;
+    }
+    setIncoming((prev) => prev.filter((r) => r.request_id !== req.request_id));
+    try {
+      await apiFetch(`/friends/requests/${req.request_id}/decline`, { method: "POST" });
     } catch (e) {
       console.log("respond err", e);
     }
@@ -100,6 +158,7 @@ export default function Friends() {
   };
 
   const removeFriend = (row: Row) => {
+    setActionRow(null);
     Alert.alert("Remove friend?", `${row.name} will no longer see your progress.`, [
       { text: "Cancel", style: "cancel" },
       {
@@ -151,7 +210,8 @@ export default function Friends() {
   const onScanned = ({ data }: { data: string }) => {
     if (!scanOpen) return;
     setScanOpen(false);
-    sendRequest(data);
+    const code = data.includes(":") ? data.split(":").pop() || data : data;
+    promptNicknameForCode(code);
   };
 
   const copyCode = async () => {
@@ -212,11 +272,11 @@ export default function Friends() {
               autoCorrect={false}
               maxLength={6}
               style={styles.codeInput}
-              onSubmitEditing={() => sendRequest(codeInput)}
+              onSubmitEditing={() => promptNicknameForCode(codeInput)}
               testID="friend-code-input"
             />
             <Pressable
-              onPress={() => sendRequest(codeInput)}
+              onPress={() => promptNicknameForCode(codeInput)}
               style={styles.codeGo}
               disabled={sending}
               testID="send-request-button"
@@ -235,14 +295,14 @@ export default function Friends() {
                 <Text style={styles.reqName}>{r.name}</Text>
                 <View style={styles.reqBtns}>
                   <Pressable
-                    onPress={() => respond(r.request_id, "accept")}
+                    onPress={() => respond(r, "accept")}
                     style={[styles.reqBtn, { backgroundColor: colors.brandSecondary }]}
                     testID={`accept-${r.request_id}`}
                   >
                     <Text style={styles.reqBtnText}>Accept</Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => respond(r.request_id, "decline")}
+                    onPress={() => respond(r, "decline")}
                     style={[styles.reqBtn, { backgroundColor: colors.surfaceTertiary }]}
                     testID={`decline-${r.request_id}`}
                   >
@@ -279,14 +339,19 @@ export default function Friends() {
           {rows.map((r) => (
             <Pressable
               key={r.user_id}
-              onLongPress={() => !r.is_me && removeFriend(r)}
+              onLongPress={() => { if (!r.is_me) { Haptics.selectionAsync(); setActionRow(r); } }}
               style={[styles.lbRow, r.is_me && styles.lbRowMe]}
               testID={`leaderboard-row-${r.rank}`}
             >
               <Text style={[styles.lbRank, { width: 28 }]}>{r.rank === 1 ? "🥇" : r.rank === 2 ? "🥈" : r.rank === 3 ? "🥉" : r.rank}</Text>
-              <Text style={[styles.lbName, { flex: 1 }]} numberOfLines={1}>
-                {r.name}{r.is_me ? " (you)" : ""}{r.is_dead ? " 💔" : ""}
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.lbName} numberOfLines={1}>
+                  {r.name}{r.is_me ? " (you)" : ""}{r.is_dead ? " 💔" : ""}
+                </Text>
+                {!!r.nickname && r.real_name && r.real_name !== r.nickname && (
+                  <Text style={styles.lbRealName} numberOfLines={1}>{r.real_name}</Text>
+                )}
+              </View>
               {r.is_me && isSubscribed && (
                 <View style={styles.proTag} testID="leaderboard-pro-badge">
                   <Text style={styles.proTagText}>PRO</Text>
@@ -303,6 +368,90 @@ export default function Friends() {
           {rows.length > 1 && <Text style={styles.lbHint}>Hold down on a friend to remove them</Text>}
         </View>
       </ScrollView>
+
+      {/* Nickname prompt (on add, on accept, or when renaming) */}
+      <Modal transparent visible={nickTarget !== null} animationType="fade" onRequestClose={() => setNickTarget(null)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.nickWrap}
+        >
+          <View style={styles.nickCard} testID="nickname-modal">
+            <Text style={styles.nickEmoji}>🏷️</Text>
+            <Text style={styles.nickTitle}>
+              {nickTarget?.mode === "edit" ? "Rename this friend" : "Give them a nickname"}
+            </Text>
+            <Text style={styles.nickSub}>
+              {nickTarget?.mode === "add"
+                ? `Only you will see it. Code ${nickTarget?.realName}`
+                : `Only you will see it instead of ${nickTarget?.realName}`}
+            </Text>
+            <TextInput
+              value={nickInput}
+              onChangeText={setNickInput}
+              placeholder="e.g. Study buddy"
+              placeholderTextColor={colors.onSurfaceMuted}
+              maxLength={24}
+              autoFocus
+              style={styles.nickInput}
+              onSubmitEditing={() => saveNickname()}
+              testID="nickname-input"
+            />
+            <Pressable onPress={() => saveNickname()} style={styles.nickSave} disabled={savingNick} testID="nickname-save">
+              {savingNick ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text style={styles.nickSaveText}>
+                  {nickTarget?.mode === "add" ? "Send request" : "Save nickname"}
+                </Text>
+              )}
+            </Pressable>
+            <Pressable
+              onPress={() => saveNickname("")}
+              style={styles.nickGhost}
+              disabled={savingNick}
+              testID="nickname-skip"
+            >
+              <Text style={styles.nickGhostText}>
+                {nickTarget?.mode === "edit" ? "Clear nickname" : "Skip — use their real name"}
+              </Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Friend actions (long-press) */}
+      <Modal transparent visible={actionRow !== null} animationType="fade" onRequestClose={() => setActionRow(null)}>
+        <View style={styles.nickWrap}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setActionRow(null)} />
+          <View style={styles.nickCard} testID="friend-actions-modal">
+            <Text style={styles.nickTitle}>{actionRow?.name}</Text>
+            <Pressable
+              onPress={() => {
+                const row = actionRow;
+                setActionRow(null);
+                if (row) {
+                  setNickInput(row.nickname || "");
+                  setNickTarget({ friendId: row.user_id, realName: row.real_name || row.name, mode: "edit" });
+                }
+              }}
+              style={styles.nickSave}
+              testID="friend-action-rename"
+            >
+              <Text style={styles.nickSaveText}>Set nickname</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => actionRow && removeFriend(actionRow)}
+              style={styles.removeBtn}
+              testID="friend-action-remove"
+            >
+              <Text style={styles.removeBtnText}>Remove friend</Text>
+            </Pressable>
+            <Pressable onPress={() => setActionRow(null)} style={styles.nickGhost}>
+              <Text style={styles.nickGhostText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       {/* QR scanner */}
       <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
@@ -386,6 +535,29 @@ const styles = StyleSheet.create({
   lbRowMe: { backgroundColor: colors.brandTertiary, borderRadius: radius.md, paddingHorizontal: 6 },
   lbRank: { fontSize: 14, fontWeight: "800", color: colors.onSurface },
   lbName: { fontSize: 15, fontWeight: "700", color: colors.onSurface },
+  lbRealName: { fontSize: 11, color: colors.onSurfaceMuted, fontWeight: "600", marginTop: 1 },
+  nickWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: spacing.lg },
+  nickCard: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, width: "100%", alignItems: "center" },
+  nickEmoji: { fontSize: 40 },
+  nickTitle: { fontSize: 20, fontWeight: "800", color: colors.onSurface, marginTop: spacing.sm, textAlign: "center" },
+  nickSub: { fontSize: 13, color: colors.onSurfaceMuted, textAlign: "center", marginTop: 6, lineHeight: 18 },
+  nickInput: {
+    alignSelf: "stretch", backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill,
+    borderWidth: 2, borderColor: colors.border, paddingHorizontal: spacing.lg, paddingVertical: 12,
+    fontSize: 16, fontWeight: "700", color: colors.onSurface, marginTop: spacing.lg, textAlign: "center",
+  },
+  nickSave: {
+    alignSelf: "stretch", backgroundColor: colors.brandPrimary, borderRadius: radius.pill,
+    paddingVertical: 14, alignItems: "center", marginTop: spacing.md, minHeight: 48, justifyContent: "center",
+  },
+  nickSaveText: { color: colors.onBrandPrimary, fontWeight: "800", fontSize: 16 },
+  nickGhost: { paddingVertical: spacing.md, minHeight: 44, justifyContent: "center" },
+  nickGhostText: { color: colors.onSurfaceMuted, fontWeight: "700", fontSize: 13 },
+  removeBtn: {
+    alignSelf: "stretch", borderRadius: radius.pill, borderWidth: 2, borderColor: colors.error,
+    paddingVertical: 12, alignItems: "center", marginTop: spacing.sm, minHeight: 44, justifyContent: "center",
+  },
+  removeBtnText: { color: colors.error, fontWeight: "800", fontSize: 15 },
   lbValue: { fontSize: 14, fontWeight: "700", color: colors.onSurface },
   proTag: {
     backgroundColor: "#FBBF24", borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2,

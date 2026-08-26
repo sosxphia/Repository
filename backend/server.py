@@ -749,6 +749,10 @@ FRIEND_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 class FriendRequestCreate(BaseModel):
     code: str
+    nickname: Optional[str] = Field(default=None, min_length=1, max_length=24)
+
+class FriendNicknameUpdate(BaseModel):
+    nickname: Optional[str] = Field(default=None, max_length=24)
 
 async def _ensure_friend_code(user) -> str:
     code = user.get("friend_code")
@@ -763,18 +767,14 @@ async def _ensure_friend_code(user) -> str:
         return candidate
     raise HTTPException(status_code=500, detail="Could not generate friend code")
 
-async def _friend_ids(user_id: str) -> List[str]:
-    rows = await db.friends.find({"user_id": user_id}, {"_id": 0, "friend_id": 1}).to_list(500)
-    return [r["friend_id"] for r in rows]
-
-async def _link_friends(a: str, b: str):
+async def _link_friends(a: str, b: str, a_nickname: Optional[str] = None, b_nickname: Optional[str] = None):
+    """Link both directions. a_nickname is what `a` calls `b`, b_nickname what `b` calls `a`."""
     ts = now_utc()
-    for x, y in ((a, b), (b, a)):
-        await db.friends.update_one(
-            {"user_id": x, "friend_id": y},
-            {"$setOnInsert": {"created_at": ts}},
-            upsert=True,
-        )
+    for x, y, nick in ((a, b, a_nickname), (b, a, b_nickname)):
+        update: dict = {"$setOnInsert": {"created_at": ts}}
+        if nick:
+            update["$set"] = {"nickname": nick.strip()[:24]}
+        await db.friends.update_one({"user_id": x, "friend_id": y}, update, upsert=True)
 
 @api_router.get("/friends/me")
 async def friends_me(authorization: Optional[str] = Header(None)):
@@ -813,19 +813,33 @@ async def send_friend_request(payload: FriendRequestCreate, authorization: Optio
             {"request_id": incoming["request_id"]},
             {"$set": {"status": "accepted", "responded_at": now_utc()}},
         )
-        await _link_friends(user["user_id"], target["user_id"])
-        return {"status": "accepted", "friend_name": target.get("name") or "Friend"}
+        await _link_friends(
+            user["user_id"], target["user_id"],
+            a_nickname=payload.nickname,
+            b_nickname=incoming.get("from_nickname"),
+        )
+        return {
+            "status": "accepted",
+            "friend_id": target["user_id"],
+            "friend_name": target.get("name") or "Friend",
+        }
     dup = await db.friend_requests.find_one({
         "from_user_id": user["user_id"], "to_user_id": target["user_id"], "status": "pending",
     })
     if dup:
-        return {"status": "pending", "friend_name": target.get("name") or "Friend"}
+        if payload.nickname:
+            await db.friend_requests.update_one(
+                {"request_id": dup["request_id"]},
+                {"$set": {"from_nickname": payload.nickname.strip()[:24]}},
+            )
+        return {"status": "pending", "friend_id": target["user_id"], "friend_name": target.get("name") or "Friend"}
     await db.friend_requests.insert_one({
         "request_id": f"fr_{uuid.uuid4().hex[:12]}",
         "from_user_id": user["user_id"],
         "to_user_id": target["user_id"],
         "status": "pending",
         "created_at": now_utc(),
+        "from_nickname": payload.nickname.strip()[:24] if payload.nickname else None,
     })
     try:
         await send_push(
@@ -838,7 +852,7 @@ async def send_friend_request(payload: FriendRequestCreate, authorization: Optio
         )
     except Exception as e:
         logger.warning(f"Push failed (non-blocking): {e}")
-    return {"status": "pending", "friend_name": target.get("name") or "Friend"}
+    return {"status": "pending", "friend_id": target["user_id"], "friend_name": target.get("name") or "Friend"}
 
 @api_router.get("/friends/requests")
 async def list_friend_requests(authorization: Optional[str] = Header(None)):
@@ -868,7 +882,12 @@ async def list_friend_requests(authorization: Optional[str] = Header(None)):
     return {"incoming": incoming, "outgoing": outgoing}
 
 @api_router.post("/friends/requests/{request_id}/{action}")
-async def respond_friend_request(request_id: str, action: str, authorization: Optional[str] = Header(None)):
+async def respond_friend_request(
+    request_id: str,
+    action: str,
+    payload: Optional[FriendNicknameUpdate] = None,
+    authorization: Optional[str] = Header(None),
+):
     user = await get_current_user(authorization)
     if action not in ("accept", "decline"):
         raise HTTPException(status_code=400, detail="Invalid action")
@@ -882,8 +901,27 @@ async def respond_friend_request(request_id: str, action: str, authorization: Op
         {"$set": {"status": "accepted" if action == "accept" else "declined", "responded_at": now_utc()}},
     )
     if action == "accept":
-        await _link_friends(user["user_id"], req["from_user_id"])
-    return {"ok": True, "status": action}
+        await _link_friends(
+            user["user_id"], req["from_user_id"],
+            a_nickname=(payload.nickname if payload else None),
+            b_nickname=req.get("from_nickname"),
+        )
+    return {"ok": True, "status": action, "friend_id": req["from_user_id"]}
+
+@api_router.patch("/friends/{friend_id}/nickname")
+async def set_friend_nickname(
+    friend_id: str, payload: FriendNicknameUpdate, authorization: Optional[str] = Header(None)
+):
+    """Rename a friend for yourself only. Send an empty nickname to clear it."""
+    user = await get_current_user(authorization)
+    nickname = (payload.nickname or "").strip()[:24]
+    res = await db.friends.update_one(
+        {"user_id": user["user_id"], "friend_id": friend_id},
+        {"$set": {"nickname": nickname or None}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not your friend")
+    return {"ok": True, "friend_id": friend_id, "nickname": nickname or None}
 
 @api_router.delete("/friends/{friend_id}")
 async def remove_friend(friend_id: str, authorization: Optional[str] = Header(None)):
@@ -895,7 +933,11 @@ async def remove_friend(friend_id: str, authorization: Optional[str] = Header(No
 @api_router.get("/friends/leaderboard")
 async def friends_leaderboard(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
-    ids = await _friend_ids(user["user_id"])
+    friend_rows = await db.friends.find(
+        {"user_id": user["user_id"]}, {"_id": 0, "friend_id": 1, "nickname": 1}
+    ).to_list(500)
+    ids = [r["friend_id"] for r in friend_rows]
+    nicknames = {r["friend_id"]: r.get("nickname") for r in friend_rows}
     all_ids = [user["user_id"]] + ids
     week_start = now_utc() - timedelta(days=7)
 
@@ -916,7 +958,9 @@ async def friends_leaderboard(authorization: Optional[str] = Header(None)):
     rows = [
         {
             "user_id": u["user_id"],
-            "name": u.get("name") or "Friend",
+            "name": nicknames.get(u["user_id"]) or u.get("name") or "Friend",
+            "real_name": u.get("name") or "Friend",
+            "nickname": nicknames.get(u["user_id"]),
             "xp": xp_by_user.get(u["user_id"], 0),
             "streak_days": int(u.get("streak_days", 0)),
             "focus_minutes_week": focus_by_user.get(u["user_id"], 0),

@@ -1,0 +1,42 @@
+{
+  "summary": "Friend Nicknames (iteration 23) fully verified end-to-end. Backend: 21/21 pytest cases pass (test_nicknames.py, sequential run — pytest.ini uses -n auto which caused false-positive races between TestPatchNickname and TestSendWithNickname because they share ui-test-user/friend-test-user state; the tests are correct and pass deterministically with -p no:xdist. Coverage: PATCH /api/friends/{friend_id}/nickname — 401 unauth, set (only caller's side), clear via empty string, clear via null, max 24 chars OK, 25 chars → 422, non-friend → 404, verified other user's leaderboard unaffected, verified caller's own row unaffected by nicknames; POST /api/friends/requests — response now returns friend_id in both pending and accepted branches, from_nickname persisted on the pending doc, nickname omitted → from_nickname None, >24 → 422, reverse-pending instant-accept applies BOTH sides' nicknames (a_nickname from requester's send, b_nickname from earlier from_nickname); POST /api/friends/requests/{id}/accept — body optional (Optional[FriendNicknameUpdate]=None), works with no body, empty {}, {\"nickname\": null}, and {\"nickname\": \"X\"}, decline still works with no body, response includes friend_id; GET /api/friends/leaderboard rows always include name/real_name/nickname, sorting by xp unchanged, ranks 1..N. Frontend (Expo web preview, 390x844, sprout_session_token=uitest_token_123 via add_init_script): friends-screen loads cleanly; tapping Send with a code opens nickname-modal FIRST (save label 'Send request', skip label 'Skip — use their real name') and only sends on Save/Skip — verified the POST body flowed with nickname 'TestFernNick', B's incoming request appeared with that from_nickname, leaderboard row for B rendered nickname 'TestFernNick' as main name with 'Ferny' in small grey underneath (screenshot iter23_final.png); long-pressing rank-2 opens friend-actions-modal with friend-action-rename + friend-action-remove; rename opens nickname-modal in edit mode prefilled with existing nickname and skip label 'Clear nickname' — tapping it cleared the nickname on the server (leaderboard row went back to real name). Accepting an incoming request also routed through nickname-modal before linking. QR-scan path (onScanned in friends.tsx:210-215) calls promptNicknameForCode(code) after stripping the sproutly:friend: prefix — same modal flow as the code input, verified by code inspection (camera unavailable in headless browser). Regression: my-qr-card, incoming/outgoing request lists, and leaderboard-card all render; other tabs (Tree/Goals/Focus/Profile) load without crashes. Cleanup done: A and B re-linked WITHOUT nicknames, no pending requests, plant_f950c13f4790 alive, ui-test-user settings (focus_lock_enabled/notifications_enabled/strict_lock_enabled) all true.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_nicknames.py",
+    "/app/test_reports/pytest/iteration_23_results.xml",
+    "/app/test_reports/iter23_nickname_modal_on_add.png",
+    "/app/test_reports/iter23_friend_actions_modal.png",
+    "/app/test_reports/iter23_final.png"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "backend/server.py:750-755 — FriendRequestCreate.nickname has min_length=1 (so an explicit empty-string on send is 422), while FriendNicknameUpdate.nickname has no min_length (so empty string clears). The frontend guards this by sending `nickname?.trim() || undefined` on send and `nickname || null` on PATCH, so it's a consistent contract in practice. Worth noting: sending {\"nickname\":\"\"} to POST /friends/requests → 422; that's intentional-and-correct but a bit asymmetric with the PATCH endpoint.",
+    "backend/server.py:826-835 — When a duplicate pending request is re-POSTed with a new nickname, the from_nickname is overwritten (good). When re-POSTed WITHOUT nickname, the existing from_nickname is left untouched (also reasonable), so a user can 'update but not clear' via the send endpoint. Clearing pre-accept isn't exposed by the UI which is fine.",
+    "backend/server.py:770-777 — _link_friends only writes nickname when truthy, so a null b_nickname on instant-accept won't wipe a previously-persisted friends-row nickname if one existed. Since friends rows are $setOnInsert scaffolded here and no prior friends doc exists at instant-accept time, this is safe.",
+    "backend/server.py:961 — leaderboard row uses `nicknames.get(u[\"user_id\"]) or u.get(\"name\")`. `nicknames` is built only from friend rows keyed on friend_id, so the caller's own user_id is never in it → own row always shows real name. Confirmed by test_a_leaderboard_shows_nickname.",
+    "frontend/app/(tabs)/friends.tsx:210-215 — QR scanner path routes through promptNicknameForCode, so scanned adds correctly show the same nickname modal. No divergence from the manual-code path.",
+    "frontend/app/(tabs)/friends.tsx:144-158 — decline path bypasses the nickname modal (as intended); only accept opens it. Good.",
+    "backend/pytest.ini uses `-n auto` (pytest-xdist) which parallelises across test files; tests that mutate shared friend state (test_friends.py + test_nicknames.py) will race if both are run together. Recommend adding a serial marker or grouping via @pytest.mark.xdist_group('friends_shared') on both files. Not a functional bug, only affects CI runs."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_nicknames.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (21/21 sequential)",
+    "frontend": "100% for all covered UI flows (send-with-prompt, accept-with-prompt, long-press actions, rename+clear, leaderboard rendering)"
+  },
+  "seed_data_creation": "None new. Reused seeded users ui-test-user / friend-test-user and their tokens uitest_token_123 / friendtest_token_123. Test suite uses module-scoped fixtures to unlink/relink cleanly.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Nickname feature is fully wired. Data model additions: friends collection docs may carry `nickname` (str|null) private to the doc owner; friend_requests docs may carry `from_nickname`. To auth-test via browser use add_init_script('localStorage.setItem(...)') BEFORE navigation to avoid the /login redirect firing (setting after goto races the first fetch). pytest.ini has -n auto which causes flaky failures across test_friends.py + test_nicknames.py because both mutate the same A↔B relationship — run them serially or with @pytest.mark.xdist_group. After the run I restored A↔B as friends WITHOUT nicknames and no pending requests. Frontend flow order for adds: promptNicknameForCode → nickname-modal → saveNickname() → sendRequest(). Accept flow: respond(req,'accept') → nickname-modal → saveNickname() → POST /friends/requests/{id}/accept with body {nickname: string|null}. QR-scan is untestable headless but routes through the same prompt (friends.tsx:210).",
+  "rca_of_issue": ""
+}
