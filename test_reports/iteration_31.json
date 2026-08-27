@@ -1,0 +1,38 @@
+{
+  "summary": "Password reset (email + code) and Show Password features verified end-to-end. Backend: 14/14 new /app/backend/tests/test_password_reset.py pass on first run (14 tests covering forgot-password enumeration protection, single-row creation, 15-min expiry, 60s throttle, real Resend send, and reset-password happy path + session invalidation + no-reuse + 5-attempt lockout + expired-code purge + Pydantic 422s on short/long code + short pw). Regression: existing 30 email-auth + password-leak tests all still pass. Frontend: /login toggle-password-visibility flips input type between 'password' and 'text' on web build; forgot-password-link opens reset-panel; send-reset-code advances to reset-code-input + new-password-input + submit-reset + resend-reset-code + cancel-reset; 'Enter your email first' fires on empty email; inline errors fire for short code / short new password; full end-to-end reset (signup → forgot → seed hash for '123456' in Mongo → submit-reset → land in Garden with 'Meet your tree' modal + fresh session_token) succeeded; Google button still renders. NO hashed_password in reset-password response (recursive scan). All backend endpoints behave exactly as specified in the review request. Backend URL used: https://grow-by-goals.preview.emergentagent.com.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/forgot-password", "issue": "test_delivered_at_resend_no_logged_error flakes on repeated runs — Resend returns 429 'Too Many Requests' for delivered@resend.dev, and the /api/v1/email/send proxy surfaces that as 502 which is logged as 'reset email failed'. Not a code bug; Resend's own sandbox throttle. Passes first run in a session. If deterministic behavior is desired, backoff or a fresh throwaway to-address per run would help."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_password_reset.py",
+    "/app/backend/tests/_seed_reset_code.py",
+    "/app/test_reports/pytest/password_reset_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:278-317 /auth/forgot-password returns identical {'ok':True,'message':...} for known and unknown emails — enumeration-safe. Throttle uses created_at>now-1min so a second call within 60s never inserts a new row. Reset row correctly has code_hash, expires_at=+15min, attempts=0.",
+    "server.py:319-352 /auth/reset-password: verifies argon2 hash, purges the row on expiry / attempts>=5 / success (all reuse-safe), deletes ALL prior sessions for that user (user_sessions.delete_many), clears the login throttle counter, issues a fresh 30-day session, and returns {'session_token','user'} without hashed_password (users.find_one projection excludes it).",
+    "emailer.py:_assert_safe_email enforces no forms, no credential-asking phrases, https-only links, no shorteners/IP hosts, and anchor-text/href host match — solid phishing guard for outbound Sproutly mail.",
+    "login.tsx toggle-password-visibility drives secureTextEntry on both the login/signup password field AND the new-password-input in the reset panel (via shared showPassword state) — nice reuse.",
+    "login.tsx:34,49,50 client-side validation for 'Enter your email first', 6-digit code, and 8-char new password all fire before hitting the backend — matches the required inline auth-error copy."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_password_reset.py (new — 14 test suite)",
+    "/app/backend/tests/_seed_reset_code.py (new — helper for UI seed)"
+  ],
+  "success_rate": {"backend": "43/44 = 97.7% (30 regression + 14 new; 1 flaky Resend-throttle test passes first-run only)", "frontend": "100% (login screen, tabs, eye toggle, forgot link, reset panel, all 5 sub-testIDs, both inline validation errors, full E2E reset lands in Garden)"},
+  "seed_data_creation": "None persisted. Every throwaway signup (TEST_reset_* backend + TEST_ui_reset_* frontend + delivered@resend.dev if created) was cleaned up post-test: users, user_sessions, plants, goals, focus_sessions, daily_quests, password_resets, auth_attempts all purged. Verified 0 rows remaining in password_resets and auth_attempts. ui-test-user intact (settings notif/focus/strict all True), plant_f950c13f4790 alive.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Password reset regression suite: /app/backend/tests/test_password_reset.py (14 tests, run with `pytest backend/tests/test_password_reset.py -v`). Helper to overwrite a password_resets row with hash('123456') is /app/backend/tests/_seed_reset_code.py (usage: `python _seed_reset_code.py <email>`). Note the delivered@resend.dev test flakes on rapid re-runs (Resend 429s) — either skip it or wait a minute between runs. UI reset flow requires the 'Meet your tree' naming modal to dismiss after landing.",
+  "rca_of_issue": "N/A — no bugs found. Feature works end-to-end. Only observation is that repeated real-Resend calls to delivered@resend.dev in the same minute get 429ed, which the code correctly logs as 'reset email failed'. Suggest bumping Resend to a real send only on the first run of the module (session-scope fixture) or checking a per-address rate-limit before asserting."
+}

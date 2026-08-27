@@ -11,13 +11,52 @@ import { useAuth } from "@/src/context/AuthContext";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
 export default function Login() {
-  const { signInWithGoogle, signInWithApple, appleAvailable, signUpWithEmail, signInWithEmail } = useAuth();
+  const {
+    signInWithGoogle, signInWithApple, appleAvailable, signUpWithEmail, signInWithEmail,
+    requestPasswordReset, resetPassword,
+  } = useAuth();
   const [busy, setBusy] = useState<null | "google" | "apple" | "email">(null);
   const [mode, setMode] = useState<"signup" | "login">("signup");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  // Password reset: "request" asks for the code, "confirm" takes code + new password
+  const [resetStep, setResetStep] = useState<null | "request" | "confirm">(null);
+  const [resetCode, setResetCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [resetNote, setResetNote] = useState<string | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
+
+  const sendResetCode = async () => {
+    setError(null);
+    if (!email.trim().includes("@")) { setError("Enter your email first"); return; }
+    setResetBusy(true);
+    try {
+      await requestPasswordReset(email);
+      setResetStep("confirm");
+      setResetNote("If that email has an account, a 6-digit code is on its way. It expires in 15 minutes.");
+    } catch (e: any) {
+      setError(e?.message || "Couldn't send the code. Please try again.");
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  const submitReset = async () => {
+    setError(null);
+    if (resetCode.trim().length !== 6) { setError("Enter the 6-digit code from your email"); return; }
+    if (newPassword.length < 8) { setError("New password must be at least 8 characters"); return; }
+    setResetBusy(true);
+    try {
+      await resetPassword(email, resetCode, newPassword);
+    } catch (e: any) {
+      setError(e?.message || "That code is invalid or has expired.");
+    } finally {
+      setResetBusy(false);
+    }
+  };
 
   const submitEmail = async () => {
     setError(null);
@@ -107,17 +146,87 @@ export default function Login() {
             style={styles.input}
             testID="email-input"
           />
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Password (8+ characters)"
-            placeholderTextColor={colors.onSurfaceMuted}
-            secureTextEntry
-            autoCapitalize="none"
-            style={styles.input}
-            onSubmitEditing={submitEmail}
-            testID="password-input"
-          />
+          <View style={styles.passwordRow}>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Password (8+ characters)"
+              placeholderTextColor={colors.onSurfaceMuted}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              style={[styles.input, { flex: 1, paddingRight: 48 }]}
+              onSubmitEditing={submitEmail}
+              testID="password-input"
+            />
+            <Pressable
+              onPress={() => setShowPassword((v) => !v)}
+              style={styles.eyeBtn}
+              hitSlop={8}
+              testID="toggle-password-visibility"
+            >
+              <Ionicons
+                name={showPassword ? "eye-off-outline" : "eye-outline"}
+                size={20}
+                color={colors.onSurfaceMuted}
+              />
+            </Pressable>
+          </View>
+
+          {mode === "login" && resetStep === null && (
+            <Pressable onPress={() => { setResetNote(null); setError(null); setResetStep("request"); }} style={styles.forgotBtn} testID="forgot-password-link">
+              <Text style={styles.forgotText}>Forgot your password?</Text>
+            </Pressable>
+          )}
+
+          {resetStep !== null && (
+            <View style={styles.resetBox} testID="reset-panel">
+              <Text style={styles.resetTitle}>Reset your password</Text>
+              {resetStep === "request" ? (
+                <>
+                  <Text style={styles.resetHelp}>
+                    We&apos;ll email a 6-digit code to the address above.
+                  </Text>
+                  <Pressable onPress={sendResetCode} disabled={resetBusy} style={styles.resetBtn} testID="send-reset-code">
+                    {resetBusy ? <ActivityIndicator color="#FFF" /> : <Text style={styles.resetBtnText}>Email me a code</Text>}
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  {!!resetNote && <Text style={styles.resetHelp}>{resetNote}</Text>}
+                  <TextInput
+                    value={resetCode}
+                    onChangeText={setResetCode}
+                    placeholder="6-digit code"
+                    placeholderTextColor={colors.onSurfaceMuted}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    style={styles.input}
+                    testID="reset-code-input"
+                  />
+                  <TextInput
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="New password (8+ characters)"
+                    placeholderTextColor={colors.onSurfaceMuted}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    style={styles.input}
+                    onSubmitEditing={submitReset}
+                    testID="new-password-input"
+                  />
+                  <Pressable onPress={submitReset} disabled={resetBusy} style={styles.resetBtn} testID="submit-reset">
+                    {resetBusy ? <ActivityIndicator color="#FFF" /> : <Text style={styles.resetBtnText}>Set new password</Text>}
+                  </Pressable>
+                  <Pressable onPress={sendResetCode} disabled={resetBusy} style={styles.forgotBtn} testID="resend-reset-code">
+                    <Text style={styles.forgotText}>Send a new code</Text>
+                  </Pressable>
+                </>
+              )}
+              <Pressable onPress={() => { setResetStep(null); setResetCode(""); setNewPassword(""); setResetNote(null); setError(null); }} style={styles.forgotBtn} testID="cancel-reset">
+                <Text style={styles.forgotText}>Back to sign in</Text>
+              </Pressable>
+            </View>
+          )}
 
           {!!error && <Text style={styles.errorText} testID="auth-error">{error}</Text>}
 
@@ -199,6 +308,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg, paddingVertical: 12, fontSize: 15, fontWeight: "600",
     color: colors.onSurface, minHeight: 48,
   },
+  passwordRow: { position: "relative", justifyContent: "center" },
+  eyeBtn: { position: "absolute", right: 8, width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  forgotBtn: { paddingVertical: 8, alignItems: "center", minHeight: 36, justifyContent: "center" },
+  forgotText: { fontSize: 13, fontWeight: "700", color: colors.brandPrimary },
+  resetBox: {
+    backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm,
+  },
+  resetTitle: { fontSize: 15, fontWeight: "800", color: colors.onSurface },
+  resetHelp: { fontSize: 12, color: colors.onSurfaceMuted, lineHeight: 17 },
+  resetBtn: {
+    backgroundColor: colors.brandSecondary, borderRadius: radius.pill, paddingVertical: 13,
+    alignItems: "center", minHeight: 46, justifyContent: "center",
+  },
+  resetBtnText: { color: "#FFF", fontWeight: "800", fontSize: 15 },
   errorText: { color: colors.error, fontSize: 13, fontWeight: "700", textAlign: "center" },
   emailBtn: {
     backgroundColor: colors.brandPrimary, borderRadius: radius.pill, paddingVertical: 15,

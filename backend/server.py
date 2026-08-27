@@ -5,6 +5,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
 from pymongo import ReturnDocument
 from pwdlib import PasswordHash
+from html import escape
+from emailer import send_email
 import asyncio
 import os
 import logging
@@ -260,6 +262,90 @@ async def auth_login(payload: EmailLogin):
         valid = False
     if not valid:
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    await db.auth_attempts.delete_one({"_id": f"login:{email}"})
+    token = await _issue_session(user["user_id"])
+    fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "hashed_password": 0})
+    return {"session_token": token, "user": fresh}
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetConfirm(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6)
+    new_password: str = Field(min_length=8, max_length=128)
+
+@api_router.post("/auth/forgot-password")
+async def auth_forgot_password(payload: PasswordResetRequest):
+    """Email a 6-digit reset code. Always returns ok so emails can't be enumerated."""
+    email = _norm_email(payload.email)
+    user = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1, "name": 1})
+    if user:
+        recent = await db.password_resets.find_one(
+            {"email": email, "created_at": {"$gt": now_utc() - timedelta(minutes=1)}}
+        )
+        if not recent:
+            code = f"{secrets.randbelow(1000000):06d}"
+            await db.password_resets.delete_many({"email": email})
+            await db.password_resets.insert_one({
+                "email": email,
+                "code_hash": password_hash.hash(code),
+                "created_at": now_utc(),
+                "expires_at": now_utc() + timedelta(minutes=15),
+                "attempts": 0,
+            })
+            safe_name = escape(user.get("name") or "there")
+            html = (
+                '<table role="presentation" width="100%"><tr><td style="padding:24px;'
+                'font-family:Arial,sans-serif;color:#1F2937">'
+                f'<p style="font-size:16px">Hi {safe_name},</p>'
+                '<p style="font-size:15px">Here is your Sproutly password reset code. '
+                'Type it into the app to choose a new password:</p>'
+                f'<p style="font-size:32px;font-weight:bold;letter-spacing:6px;'
+                f'color:#15803D;margin:24px 0">{code}</p>'
+                '<p style="font-size:14px;color:#4B5563">The code expires in 15 minutes and can '
+                'only be used once. If you did not ask for it, you can ignore this email — your '
+                'tree is safe.</p>'
+                '<p style="font-size:12px;color:#888">Sent by Sproutly. We never ask for your '
+                'password or payment details by email.</p>'
+                '</td></tr></table>'
+            )
+            try:
+                await send_email(to=email, subject="Your Sproutly password reset code", html=html)
+            except Exception as e:
+                logger.error(f"reset email failed: {e}")
+    return {"ok": True, "message": "If that email has an account, a reset code is on its way."}
+
+@api_router.post("/auth/reset-password")
+async def auth_reset_password(payload: PasswordResetConfirm):
+    email = _norm_email(payload.email)
+    entry = await db.password_resets.find_one({"email": email})
+    if not entry:
+        raise HTTPException(status_code=400, detail="That code is invalid or has expired")
+    expires = entry["expires_at"]
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires < now_utc() or int(entry.get("attempts", 0)) >= 5:
+        await db.password_resets.delete_many({"email": email})
+        raise HTTPException(status_code=400, detail="That code is invalid or has expired")
+    try:
+        valid = password_hash.verify(payload.code, entry["code_hash"])
+    except Exception:
+        valid = False
+    if not valid:
+        await db.password_resets.update_one({"email": email}, {"$inc": {"attempts": 1}})
+        raise HTTPException(status_code=400, detail="That code is invalid or has expired")
+    user = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1})
+    if not user:
+        raise HTTPException(status_code=400, detail="That code is invalid or has expired")
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"hashed_password": password_hash.hash(payload.new_password)},
+         "$addToSet": {"auth_providers": "password"}},
+    )
+    await db.password_resets.delete_many({"email": email})
+    # Password changed: drop every existing session, then issue a fresh one
+    await db.user_sessions.delete_many({"user_id": user["user_id"]})
     await db.auth_attempts.delete_one({"_id": f"login:{email}"})
     token = await _issue_session(user["user_id"])
     fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "hashed_password": 0})
@@ -1374,6 +1460,8 @@ async def startup():
     await db.plants.create_index("plant_id", unique=True)
     await db.users.create_index("email", unique=True, sparse=True)
     await db.auth_attempts.create_index("expires_at", expireAfterSeconds=0)
+    await db.password_resets.create_index("email")
+    await db.password_resets.create_index("expires_at", expireAfterSeconds=0)
     await db.goals.create_index("user_id")
     await db.goals.create_index("goal_id", unique=True)
     await db.daily_quests.create_index([("user_id", 1), ("date", 1)], unique=True)

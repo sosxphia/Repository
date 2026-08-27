@@ -24,6 +24,8 @@ type AuthState = {
   signInWithGoogle: () => Promise<void>;
   signUpWithEmail: (email: string, password: string, name: string) => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  resetPassword: (email: string, code: string, newPassword: string) => Promise<void>;
   signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -176,6 +178,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(data.user);
   }, []);
 
+  const requestPasswordReset = useCallback(async (email: string) => {
+    await apiFetch("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email: email.trim() }),
+    });
+  }, []);
+
+  const resetPassword = useCallback(async (email: string, code: string, newPassword: string) => {
+    const data = await apiFetch("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ email: email.trim(), code: code.trim(), new_password: newPassword }),
+    });
+    await saveToken(data.session_token);
+    setUser(data.user);
+  }, []);
+
   const signOut = useCallback(async () => {
     try { await apiFetch("/auth/logout", { method: "POST" }); } catch {}
     await clearToken();
@@ -187,7 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [checkExisting]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, appleAvailable, signInWithGoogle, signInWithApple, signUpWithEmail, signInWithEmail, signOut, refresh }}>
+    <AuthContext.Provider value={{ user, loading, appleAvailable, signInWithGoogle, signInWithApple, signUpWithEmail, signInWithEmail, requestPasswordReset, resetPassword, signOut, refresh }}>
       {children}
     </AuthContext.Provider>
   );
