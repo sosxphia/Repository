@@ -22,6 +22,8 @@ type AuthState = {
   loading: boolean;
   appleAvailable: boolean;
   signInWithGoogle: () => Promise<void>;
+  signUpWithEmail: (email: string, password: string, name: string) => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
   signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -156,6 +158,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(data.user);
   }, []);
 
+  const signUpWithEmail = useCallback(async (email: string, password: string, name: string) => {
+    const data = await apiFetch("/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ email: email.trim(), password, name: name.trim() }),
+    });
+    await saveToken(data.session_token);
+    setUser(data.user);
+  }, []);
+
+  const signInWithEmail = useCallback(async (email: string, password: string) => {
+    const data = await apiFetch("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: email.trim(), password }),
+    });
+    await saveToken(data.session_token);
+    setUser(data.user);
+  }, []);
+
   const signOut = useCallback(async () => {
     try { await apiFetch("/auth/logout", { method: "POST" }); } catch {}
     await clearToken();
@@ -167,7 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [checkExisting]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, appleAvailable, signInWithGoogle, signInWithApple, signOut, refresh }}>
+    <AuthContext.Provider value={{ user, loading, appleAvailable, signInWithGoogle, signInWithApple, signUpWithEmail, signInWithEmail, signOut, refresh }}>
       {children}
     </AuthContext.Provider>
   );

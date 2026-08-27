@@ -1,0 +1,40 @@
+{
+  "summary": "Tested email/password signup+login (POST /api/auth/signup, /api/auth/login), session integrity, new-user bootstrapping (plants/current, goals, settings, friends), regression on Google seed token, plus /login frontend tabs and validation. 15/16 backend tests pass. FOUND CRITICAL SECURITY BUG: GET /api/auth/me leaks the user's bcrypt/argon2 hashed_password field to any authenticated caller — the response should exclude hashed_password. Everything else (signup normalization + validation, 409 on dup email, 422 on bad password/name/email, 429 throttle after ~11 fails and its reset on success, 43-char urlsafe tokens, needs_naming plant + settings defaults + friend_code for a fresh user, existing uitest_token_123 still valid) works as spec.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/auth/me", "issue": "Returns full user document INCLUDING hashed_password for email/password accounts. In server.py:67 get_current_user does find_one({...},{'_id':0}) but never excludes hashed_password, and /auth/me returns that user object verbatim. Verified in test: after signup, GET /auth/me json contains a 'hashed_password' key. Same object shape is likely echoed by /auth/apple and /auth/session responses too (they use {'_id':0} at server.py:159, 351). Fix: in get_current_user (and any other user reads exposed to clients) add hashed_password: 0 to the projection, OR strip it in /auth/me handler.", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_email_auth.py",
+    "/app/test_reports/pytest/email_auth_results.xml"
+  ],
+  "action_items": [
+    "HIGH: Exclude hashed_password from every user response. Simplest safe fix: change get_current_user projection to {'_id':0,'hashed_password':0} in server.py so /auth/me and any other consumer that returns the whole user doc are safe. Confirm /auth/signup, /auth/login, /auth/session, /auth/apple all also strip it.",
+    "OPTIONAL: consider returning a 401 (not 422) when signup body fails password validation, matching the plain 'Invalid email or password' message for user enumeration parity — current 422 is fine but a client-side validation-first UX already prevents that leak.",
+    "OPTIONAL: /auth/login throttle uses count > 10 (i.e. the 11th failure returns 429). Spec says 'after ~11 failed attempts' — implementation matches. Keep the current 15-min TTL and delete-on-success behavior."
+  ],
+  "critical_code_review_comments": [
+    "server.py:220-244 auth_signup already strips hashed_password from its own response via projection — good. But server.py:67 get_current_user does NOT, and every endpoint that returns the user object (auth/me, auth/session, auth/apple) inherits that leak.",
+    "server.py:203-218 _too_many_attempts uses find_one_and_update + upsert fallback — pattern is correct and idempotent.",
+    "server.py:190-201 _issue_session uses secrets.token_urlsafe(32) (43-char) and 30-day expiry — matches spec.",
+    "frontend/app/login.tsx handles KeyboardAvoidingView + ScrollView + keyboardShouldPersistTaps='handled' — inputs stay reachable.",
+    "AuthContext.tsx signUpWithEmail/signInWithEmail trim email client-side, backend also normalizes — double-safe."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_email_auth.py (new)"
+  ],
+  "success_rate": {"backend": "15/16 = 93.75%", "frontend": "100% of critical login flows verified (signup→garden, naming modal, tabs render, Google button intact, client validation messages)"},
+  "seed_data_creation": "None persisted. Throwaway signup accounts (TEST_*, pw_*, new.user@example.com) were created during testing and cleaned up (users, plants, goals, focus_sessions, daily_quests, user_sessions, friends, friend_requests, auth_attempts). Verified ui-test-user still present with all settings true and plant_f950c13f4790 alive (is_dead=False).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After E1 patches the hashed_password leak, rerun /app/backend/tests/test_email_auth.py — the TestSignup::test_signup_success_and_normalization case asserts hashed_password NOT in /auth/me response. All other 15 tests already pass. Backend URL: https://grow-by-goals.preview.emergentagent.com. Seeded UI token uitest_token_123 is stable.",
+  "rca_of_issue": "Root cause: server.py:54-70 get_current_user projects only {'_id':0}, so hashed_password stays in the returned dict. /auth/me at server.py:354-357 returns that dict directly, leaking the argon2 hash. Repro: POST /api/auth/signup → GET /api/auth/me with the returned Bearer token → response JSON contains 'hashed_password' (see failed test test_signup_success_and_normalization). Mitigation: add 'hashed_password': 0 to the projection in get_current_user (single-line fix) OR pop it in /auth/me before returning. Impact: any XSS or leaked bearer token exposes offline password-cracking material — critical for password users."
+}

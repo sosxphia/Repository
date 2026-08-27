@@ -4,6 +4,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
 from pymongo import ReturnDocument
+from pwdlib import PasswordHash
 import asyncio
 import os
 import logging
@@ -13,7 +14,7 @@ import httpx
 import jwt
 from jwt import PyJWKClient
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 
@@ -63,7 +64,9 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
             exp = exp.replace(tzinfo=timezone.utc)
         if exp < now_utc():
             raise HTTPException(status_code=401, detail="Session expired")
-    user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
+    user = await db.users.find_one(
+        {"user_id": session["user_id"]}, {"_id": 0, "hashed_password": 0}
+    )
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return user
@@ -120,7 +123,7 @@ async def create_session(payload: SessionRequest):
     if not email or not session_token:
         raise HTTPException(status_code=401, detail="Invalid session payload")
 
-    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    existing = await db.users.find_one({"email": email}, {"_id": 0, "hashed_password": 0})
     if existing:
         user_id = existing["user_id"]
         await db.users.update_one({"user_id": user_id}, {"$set": {"name": name, "picture": picture}})
@@ -155,8 +158,112 @@ async def create_session(payload: SessionRequest):
         "created_at": now_utc(),
         "expires_at": now_utc() + timedelta(days=7),
     })
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "hashed_password": 0})
     return {"session_token": session_token, "user": user}
+
+# ---------- Email + password auth ----------
+password_hash = PasswordHash.recommended()
+DUMMY_HASH = password_hash.hash("timing-attack-placeholder-password")
+
+class EmailSignUp(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    name: str = Field(min_length=1, max_length=40)
+
+    @field_validator("password")
+    @classmethod
+    def no_control_chars(cls, value: str) -> str:
+        if any(ord(c) < 32 for c in value):
+            raise ValueError("Password contains invalid characters")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Name is required")
+        return value
+
+class EmailLogin(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+def _norm_email(email: str) -> str:
+    return str(email).strip().casefold()
+
+async def _issue_session(user_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    await db.user_sessions.insert_one({
+        "session_token": token,
+        "user_id": user_id,
+        "created_at": now_utc(),
+        "expires_at": now_utc() + timedelta(days=30),
+    })
+    return token
+
+async def _too_many_attempts(email: str) -> bool:
+    """Account-aware throttle: 10 failed logins per 15 minutes."""
+    now = now_utc()
+    doc = await db.auth_attempts.find_one_and_update(
+        {"_id": f"login:{email}", "expires_at": {"$gt": now}},
+        {"$inc": {"count": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if doc is None:
+        await db.auth_attempts.update_one(
+            {"_id": f"login:{email}"},
+            {"$set": {"count": 1, "expires_at": now + timedelta(minutes=15)}},
+            upsert=True,
+        )
+        return False
+    return int(doc.get("count", 0)) > 10
+
+@api_router.post("/auth/signup", status_code=201)
+async def auth_signup(payload: EmailSignUp):
+    email = _norm_email(payload.email)
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "user_id": user_id,
+        "email": email,
+        "name": payload.name,
+        "picture": None,
+        "hashed_password": password_hash.hash(payload.password),
+        "auth_providers": ["password"],
+        "created_at": now_utc(),
+        "streak_days": 0,
+        "last_activity_date": None,
+        "total_focus_minutes": 0,
+        "total_tasks_completed": 0,
+        "failed_login_count": 0,
+    }
+    try:
+        await db.users.insert_one(doc)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    token = await _issue_session(user_id)
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "hashed_password": 0})
+    return {"session_token": token, "user": user}
+
+@api_router.post("/auth/login")
+async def auth_login(payload: EmailLogin):
+    email = _norm_email(payload.email)
+    if await _too_many_attempts(email):
+        raise HTTPException(status_code=429, detail="Too many attempts. Please try again later.")
+    user = await db.users.find_one({"email": email})
+    if not user or not user.get("hashed_password"):
+        password_hash.verify(payload.password, DUMMY_HASH)
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    try:
+        valid = password_hash.verify(payload.password, user["hashed_password"])
+    except Exception:
+        valid = False
+    if not valid:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    await db.auth_attempts.delete_one({"_id": f"login:{email}"})
+    token = await _issue_session(user["user_id"])
+    fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "hashed_password": 0})
+    return {"session_token": token, "user": fresh}
 
 APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
 APPLE_ISSUER = "https://appleid.apple.com"
@@ -195,10 +302,10 @@ async def auth_apple(payload: AppleAuthRequest):
     name = payload.name
 
     # Accounts are matched on the Apple subject only
-    existing = await db.users.find_one({"apple_sub": apple_sub}, {"_id": 0})
+    existing = await db.users.find_one({"apple_sub": apple_sub}, {"_id": 0, "hashed_password": 0})
     # Link to an existing account only when Apple itself vouches for the email
     if not existing and email and email_verified:
-        existing = await db.users.find_one({"email": email}, {"_id": 0})
+        existing = await db.users.find_one({"email": email}, {"_id": 0, "hashed_password": 0})
         if existing:
             await db.users.update_one({"user_id": existing["user_id"]}, {"$set": {"apple_sub": apple_sub}})
 
@@ -243,7 +350,7 @@ async def auth_apple(payload: AppleAuthRequest):
         "created_at": now_utc(),
         "expires_at": now_utc() + timedelta(days=7),
     })
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "hashed_password": 0})
     return {"session_token": session_token, "user": user}
 
 @api_router.get("/auth/me")
@@ -507,7 +614,7 @@ async def create_goal(payload: GoalCreate, authorization: Optional[str] = Header
     }
 
 async def _update_activity(user_id: str, focus_minutes: int = 0, tasks_completed: int = 0):
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "hashed_password": 0})
     today = now_utc().date()
     last = user.get("last_activity_date")
     if last:
@@ -1258,7 +1365,6 @@ async def startup():
             await db.users.drop_index("email_1")
     except Exception as e:
         logger.warning(f"index migration: {e}")
-    await db.users.create_index("email", sparse=True)
     await db.users.create_index("user_id", unique=True)
     await db.users.create_index("apple_sub", unique=True, sparse=True)
     await db.user_sessions.create_index("session_token", unique=True)
@@ -1266,6 +1372,8 @@ async def startup():
     await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
     await db.plants.create_index("user_id")
     await db.plants.create_index("plant_id", unique=True)
+    await db.users.create_index("email", unique=True, sparse=True)
+    await db.auth_attempts.create_index("expires_at", expireAfterSeconds=0)
     await db.goals.create_index("user_id")
     await db.goals.create_index("goal_id", unique=True)
     await db.daily_quests.create_index([("user_id", 1), ("date", 1)], unique=True)

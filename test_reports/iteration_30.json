@@ -1,0 +1,35 @@
+{
+  "summary": "SECURITY FIX VERIFIED. Reran /app/backend/tests/test_email_auth.py — all 16/16 pass including test_signup_success_and_normalization which explicitly asserts hashed_password NOT in /auth/me. Added /app/backend/tests/test_password_leak_check.py (14 tests, all pass) that deep-asserts 'hashed_password' key is absent recursively in POST /auth/signup, POST /auth/login (good + bad path), GET /auth/me (fresh signup + seeded uitest_token_123), POST /auth/session (garbage session_id), POST /auth/apple (garbage identity_token), GET /stats, GET /friends/me, GET /friends/leaderboard. Password verification still works: signup 201 → correct pw login 200 → wrong pw login 401 (Invalid email or password) → DELETE /api/account 200 → both tokens now return 401 on /auth/me. Frontend regression: /login renders both tabs ('Create account' + 'Sign in'), successful signup lands user on /garden with the 'Meet your tree' naming modal, cleanup DELETE returned 200. ui-test-user intact: plant_f950c13f4790 alive, all 3 settings true.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_email_auth.py",
+    "/app/backend/tests/test_password_leak_check.py",
+    "/app/test_reports/pytest/email_auth_results.xml",
+    "/app/test_reports/pytest/iteration_30_leak_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:67-68 get_current_user projection now includes 'hashed_password': 0 — fix verified.",
+    "server.py:126, 161, 245, 265, 305, 308, 353, 617 also all pass {'_id':0,'hashed_password':0} projection — defense in depth across signup, login, session/google, apple, /auth/me, and every user read exposed to clients.",
+    "server.py:253-258 login handler still reads hashed_password internally (without projection) for verify() — correct: it stays server-side and is not returned to the client.",
+    "DELETE /api/account (server.py) invalidates BOTH the token used for the delete AND older tokens for the same user — verified in test_full_flow_signup_login_wrong_login_delete_token_dies."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_password_leak_check.py (new)"
+  ],
+  "success_rate": {"backend": "30/30 = 100% (16 email_auth + 14 leak-check)", "frontend": "100% (/login tabs + signup→/garden landing + cleanup)"},
+  "seed_data_creation": "None persisted. Every throwaway signup account created during backend and frontend testing was deleted via DELETE /api/account (verified 200). ui-test-user, plant_f950c13f4790, and friend-test-user are untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Auth leak is confirmed patched. Reusable regression file: /app/backend/tests/test_password_leak_check.py — the _assert_no_leak helper recursively scans any JSON response for a 'hashed_password' key, use it for future user-returning endpoints. Backend URL: https://grow-by-goals.preview.emergentagent.com. Seeded token uitest_token_123 still valid, plant_f950c13f4790 still alive, settings still all true.",
+  "rca_of_issue": "Iteration-29 CRITICAL leak was in server.py:67 where get_current_user's users.find_one projected only {'_id':0}. Any endpoint that returned that dict (auth/me, and any user embed) leaked the argon2 hash. E1's fix added 'hashed_password': 0 to that projection AND to every other users.find_one that returns to clients (auth/signup, auth/login, auth/session, auth/apple, DELETE user lookups). Iteration-30 verified with 14 fresh assertions across the full surface plus the previously-failing test in test_email_auth.py — 30/30 backend pass, no leak found on any user-returning endpoint."
+}
