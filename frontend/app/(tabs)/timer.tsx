@@ -11,8 +11,6 @@ import { FocusLockOverlay } from "@/src/components/FocusLockOverlay";
 import { SessionRecap } from "@/src/components/SessionRecap";
 import { startSessionNotifications, stopSessionNotifications } from "@/src/lib/sessionNotifications";
 import { isScreenLocked } from "@/src/lib/screenLock";
-import { useSubscription } from "@/src/lib/revenuecat";
-import { useCompletionInterstitial } from "@/src/lib/ads";
 import { GuidedAccessSheet } from "@/src/components/GuidedAccessSheet";
 import { colors, spacing, radius } from "@/src/lib/theme";
 import {
@@ -40,8 +38,6 @@ const PRESETS = [
 
 export default function Timer() {
   const router = useRouter();
-  const { isSubscribed } = useSubscription();
-  const { preload, showIfReady } = useCompletionInterstitial(!isSubscribed);
   const [duration, setDuration] = useState(25); // minutes
   const [remaining, setRemaining] = useState(25 * 60); // seconds
   const [running, setRunning] = useState(false);
@@ -204,7 +200,6 @@ export default function Timer() {
     runningRef.current = true;
     awayAtRef.current = null;
     lockedAwayRef.current = false;
-    if (!isSubscribed) preload();
     const endAt = Date.now() + minutes * 60 * 1000;
     endAtRef.current = endAt;
     KeepAwake.activateKeepAwakeAsync().catch(() => {});
@@ -439,11 +434,7 @@ export default function Timer() {
         streak={recap?.streak ?? 0}
         totalMinutesToday={recap?.today ?? 0}
         stage={recap?.stage}
-        onClose={() => {
-          setRecap(null);
-          // Free users see an interstitial once the celebration is dismissed
-          if (!isSubscribed) setTimeout(() => { showIfReady(); }, Platform.OS === "ios" ? 500 : 150);
-        }}
+        onClose={() => setRecap(null)}
       />
 
       {/* Locked full-screen focus mode */}

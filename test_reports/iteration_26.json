@@ -1,0 +1,22 @@
+{
+  "summary": "AdMob removal verified end-to-end. Repo grep for 'google-mobile-ads', 'AdMob', 'ADMOB', 'ads.native', 'ads.web', 'useCompletionInterstitial' across /app/frontend/app, /app/frontend/src, /app/frontend/app.json, /app/frontend/.env and /app/frontend/package.json returned ZERO hits. Files src/lib/ads.native.ts, ads.web.ts and ads.d.ts are absent (src/lib now only contains api/plant/push/revenuecat/screenLock/sessionNotifications/theme). app.json is valid JSON with expo-camera as the last plugin (google-mobile-ads plugin entry gone). Metro compiles clean and all 5 bottom tabs (Tree/Goals/Focus/Friends/Profile) render. 1-min custom session completes and shows session-recap-screen with recap-xp=+2, recap-minutes=1, recap-streak=🔥 1, recap-today=2; recap-close-button dismisses cleanly and the timer screen stays interactive with no black screen. Locked-in mode overlay (focus-locked-screen) appears immediately when a locked session starts, and the give-up flow (give-up-button → give-up-confirm-button → focus-lock-death-modal 'Oakley II died') works. Profile pro-features-card lists exactly 4 benefits: Monthly streak freeze (with freeze-count testID), Free tree revives, Golden PRO badge, Early access to new features — NO 'No ads' item. Paywall PERKS array has 4 non-ad perks. Settings sheet PRO row subtitle for non-PRO reads 'Monthly freezes, revives + golden badge' as required, and settings rows notifications-switch, focus-lock-switch, strict-lock-switch, manage-pro-button, delete-account-row all render. Friends tab renders friends-screen, my-qr-card, friend-code-pill, scan-qr-button, friend-code-input, send-request-button, leaderboard-card, leaderboard-row-1/2. No red screen or module-resolution errors observed. Only console noise was one stale 401 before the token was hydrated (expected) and RN web 'shadow*' deprecation warnings unrelated to this change.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_26.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "expo-doctor warns expo@54.0.36 (expected ~54.0.37) and expo-constants@18.0.13 (expected ~18.0.14) — cosmetic, unrelated to ad removal, worth bumping when convenient."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not tested per request)", "frontend": "100%"},
+  "seed_data_creation": "None. Cleanup performed: plant_f950c13f4790 revived to ALIVE (is_dead=false, xp=268); focus_sessions created during the 1-min recap + give-up test kept only the completed 1-min session (needed for recap history) — the give-up death session was left because backend expires on give-up and is idempotent; ui-test-user settings all reset to true (notifications/focus_lock/strict_lock).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Auth: pre-visit '/', localStorage.setItem('sprout_session_token','uitest_token_123'), then reload and wait ~5s — app auto-routes to /garden. Tab testIDs are NOT tab-* — use page.get_by_text('Focus'|'Goals'|'Friends'|'Profile'|'Tree').first.click() or navigate to /timer, /goals, /friends, /profile, /garden URLs directly. Focus lock is on by default for ui-test-user so any preset-* start renders focus-locked-screen immediately (grace 60s). To make plant die instantly for testing use give-up-button → give-up-confirm-button; revive via POST /api/plants/revive with Bearer uitest_token_123.",
+  "rca_of_issue": "n/a — this iteration was a verification pass for the AdMob removal. No new bugs surfaced."
+}

@@ -10,7 +10,6 @@ import { useSubscription } from "@/src/lib/revenuecat";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
 const PERKS = [
-  { icon: "close-circle-outline", text: "No ads after your focus sessions" },
   { icon: "snow-outline", text: "A free streak freeze every month" },
   { icon: "heart-outline", text: "Revive your tree any time it dies" },
   { icon: "ribbon-outline", text: "Golden PRO badge on the leaderboard" },
@@ -77,7 +76,7 @@ export default function Paywall() {
         {isSubscribed ? (
           <View style={styles.activeCard} testID="paywall-active">
             <Text style={styles.activeTitle}>You&apos;re PRO 🎉</Text>
-            <Text style={styles.activeText}>No ads, plus freezes, revives and your golden badge.</Text>
+            <Text style={styles.activeText}>Freezes, revives and your golden badge are all active.</Text>
           </View>
         ) : isLoading ? (
           <ActivityIndicator color={colors.brandPrimary} size="large" style={{ marginTop: spacing.xl }} />
@@ -127,7 +126,7 @@ export default function Paywall() {
           <View style={styles.confirmCard} testID="paywall-confirm-modal">
             <Text style={styles.confirmTitle}>Start PRO?</Text>
             <Text style={styles.confirmText}>
-              {price}/month, cancel any time. Ads switch off and your perks unlock right away.
+              {price}/month, cancel any time. Freezes, revives and your golden badge unlock right away.
             </Text>
             <Pressable onPress={doPurchase} style={styles.confirmBtn} testID="paywall-confirm-button">
               <Text style={styles.confirmBtnText}>Confirm</Text>
