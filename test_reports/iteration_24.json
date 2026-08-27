@@ -1,0 +1,34 @@
+{
+  "summary": "Profile tab 'Sproutly PRO' card refactor — frontend-only verification passes for everything reachable in the Expo web preview. What worked end-to-end via UI: (1) the old '❄️ Streak Freeze' section heading + card are GONE (no 'Streak Freeze ❄️' string in DOM, no 'Get one ·' buy label); (2) a new 'Sproutly PRO ✨' section heading is present with testID pro-features-card underneath; (3) all four PRO benefits render inside the card — 'Monthly streak freeze' (with the freeze-count sub-text), 'Free tree revives', 'Golden PRO badge', 'Early access to new features'; (4) freeze-count testID renders '0' initially and correctly re-renders as '1' after a backend claim (verifying stats→UI wiring); (5) NON-PRO path: buy-freeze-button reads exactly 'Go PRO — $2.99/month' and tapping it navigates to /paywall — verified live in browser (URL becomes /paywall, paywall screen renders). Regression fully green: header + settings-cog-button, avatar/name/email, weekly-recap-card (opens modal via recap-close-button), 4 stat cards, Streak Calendar 🔥, Badges heading + all 6 badges (3-day Streak / 60 Min Focus / 10 Goals Done / First Bloom / Garden of 5 / 5 Hours Focus), logout-button, and settings sheet with all switches (notifications-switch, focus-lock-switch, strict-lock-switch), manage-pro-button, and delete-account-row. No console/page errors from the app itself; only benign warnings (react-native-web shadow* / pointerEvents deprecations) and a RevenueCat identity 429 that is a Browser-Mode RC quirk, not app code. PRO branch of the JSX (gold gradient / 'PRO is active 🌟' / PRO chip / 'Claim this month's freeze' → 'Claimed — next one next month ❄️') COULD NOT be exercised via the web preview because RevenueCat Browser Mode keeps the caller as $RCAnonymousID (identity 429s) so useSubscription().isSubscribed is always false in the preview and the paywall's Go PRO button stays disabled with 'Syncing your account… hold on a second.' — this is an RC-web limitation, not a Sproutly bug. To compensate I (a) verified the JSX branches by code inspection of /app/frontend/app/(tabs)/profile.tsx:294-325 — the PRO branch renders proChip + gold gradient, calls claimFreeze() which POSTs /streak-freezes/claim, then flips freezeClaimable→false so the button renders 'Claimed — next one next month ❄️'; and (b) drove the same end-to-end contract at the API layer against the live public URL: GET /api/streak-freezes/status→{claimable:true,freezes:0} → POST /api/streak-freezes/claim→{granted:true,streak_freezes:1} → GET /api/streak-freezes/status→{claimable:false,freezes:1} → POST /api/streak-freezes/claim again→{granted:false,reason:'already_claimed_this_month'}, and confirmed freeze-count in the UI updated 0→1 after that backend claim. Cleanup done as requested.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iter24_profile_initial.png",
+    "/app/test_reports/iter24_pro_card.png",
+    "/app/test_reports/iter24_paywall.png",
+    "/app/test_reports/iter24_settings.png",
+    "/app/test_reports/iter24_post_purchase.png",
+    "/app/test_reports/iter24_pro_active.png"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "profile.tsx:107-130 claimFreeze() correctly guards on !isSubscribed → router.push('/paywall'), so a non-PRO user who somehow tapped the claim button would still route to paywall — safety net is in place.",
+    "profile.tsx:294-315 the disabled 'Claimed — next one next month ❄️' state relies on setFreezeClaimable(false) inside claimFreeze() after a granted:true response. On the ELSE branch (granted:false / already claimed elsewhere) the code also calls setFreezeClaimable(false) which is correct.",
+    "profile.tsx:97-99 apiFetch('/streak-freezes/status').then((f)=>setFreezeClaimable(!!f.claimable)) — good coercion. Initial state defaults to true (line 52) which could cause a 1-frame flash of 'Claim this month\\'s freeze' before the status GET resolves; harmless UX flicker but worth noting.",
+    "profile.tsx:236-241 gradient colors switch cleanly on isSubscribed (gold #FEF3C7/#FDE68A vs blue #E0F2FE/#DBEAFE) with borderColor rgba(255,255,255,0.7) — will look correct in both PRO and non-PRO states.",
+    "profile.tsx:328-338 Badges JSX reformat is functionally unchanged — badges array (line 132-139) unchanged, .map() still gates on b.unlocked; all 6 rendered in the preview.",
+    "RevenueCat Browser Mode caveat (not a code bug): Purchases.getCustomerInfo() in the web preview keeps the caller anonymous ($RCAnonymousID:...) and returns 429 on identify, so isSubscribed will always be false in the web preview for the seeded ui-test-user. The PRO branch of profile.tsx is only exercisable on a real iOS/Android build or via a real RC test-store purchase completing (paywall Go PRO button stays disabled with 'Syncing your account… hold on a second.' in preview)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% for everything reachable via web preview; PRO-active UI branch not reachable in preview due to RevenueCat Browser Mode — verified via code inspection + direct API contract instead"},
+  "seed_data_creation": "None. Reused seeded ui-test-user + uitest_token_123.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Profile tab now has ONE testID pro-features-card (LinearGradient) that swaps gradient colors + button label + card title based on useSubscription().isSubscribed. In web preview isSubscribed is permanently false because RC Browser Mode 429s on identify. To test the PRO branch you must either (a) run on a real device / Expo Go, or (b) mock useSubscription in a test build, or (c) wait for RC identify to succeed and complete a simulated purchase on /paywall (Go PRO button becomes enabled). Cleanup at end of run: ui-test-user has streak_freezes=0, no last_freeze_claim_month, notifications/focus_lock/strict_lock all true; plant_f950c13f4790 is_dead=false with died_at unset; A↔B friends rows intact with no nicknames. Backend endpoints in play: GET /api/streak-freezes/status → {streak_freezes, claimable, month}; POST /api/streak-freezes/claim → {granted, reason?, streak_freezes, month}; GET /api/stats returns streak_freezes used by freeze-count.",
+  "rca_of_issue": "Not applicable — no bug. The one 'gap' (PRO-active UI branch not driven end-to-end) is a testing-environment limitation of RevenueCat Browser Mode, not a defect in the profile.tsx change."
+}

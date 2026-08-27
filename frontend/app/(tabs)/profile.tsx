@@ -231,54 +231,102 @@ export default function Profile() {
             <Text style={styles.sectionTitle}>Streak Calendar 🔥</Text>
             <StreakCalendar />
 
-            {/* Streak Freeze shop */}
+            {/* Sproutly PRO — everything the subscription includes */}
+            <Text style={styles.sectionTitle}>Sproutly PRO ✨</Text>
             <LinearGradient
-              colors={["#E0F2FE", "#DBEAFE"]}
+              colors={isSubscribed ? ["#FEF3C7", "#FDE68A"] : ["#E0F2FE", "#DBEAFE"]}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              style={styles.freezeCard}
+              style={styles.proCard}
+              testID="pro-features-card"
             >
-              <View style={styles.freezeHeader}>
+              <View style={styles.proHeader}>
                 <View style={{ flex: 1, paddingRight: spacing.md }}>
-                  <Text style={styles.freezeTitle}>❄️ Streak Freeze</Text>
-                  <Text style={styles.freezeSub}>
-                    Miss a day and your tree dies — a freeze covers one missed day automatically.
-                    PRO members claim one free freeze every month.
+                  <Text style={styles.proCardTitle}>
+                    {isSubscribed ? "PRO is active 🌟" : "Everything PRO unlocks"}
+                  </Text>
+                  <Text style={styles.proCardSub}>
+                    {isSubscribed
+                      ? "Thanks for supporting Sproutly — here's what you get."
+                      : "$2.99 / month, cancel any time."}
                   </Text>
                 </View>
-                <View style={styles.freezeCount}>
-                  <Text style={styles.freezeCountVal} testID="freeze-count">{stats?.streak_freezes ?? 0}</Text>
-                  <Text style={styles.freezeCountLabel}>owned</Text>
+                {isSubscribed && (
+                  <View style={styles.proChip}>
+                    <Text style={styles.proChipText}>PRO</Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.proList}>
+                <View style={styles.proItem}>
+                  <Text style={styles.proItemIcon}>❄️</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.proItemTitle}>Monthly streak freeze</Text>
+                    <Text style={styles.proItemSub}>
+                      Covers one missed day automatically · you own{" "}
+                      <Text style={styles.proItemStrong} testID="freeze-count">{stats?.streak_freezes ?? 0}</Text>
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.proItem}>
+                  <Text style={styles.proItemIcon}>💚</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.proItemTitle}>Free tree revives</Text>
+                    <Text style={styles.proItemSub}>Bring a dead tree back with all its progress</Text>
+                  </View>
+                </View>
+                <View style={styles.proItem}>
+                  <Text style={styles.proItemIcon}>🏅</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.proItemTitle}>Golden PRO badge</Text>
+                    <Text style={styles.proItemSub}>Shows next to your name on the leaderboard</Text>
+                  </View>
+                </View>
+                <View style={styles.proItem}>
+                  <Text style={styles.proItemIcon}>✨</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.proItemTitle}>Early access to new features</Text>
+                    <Text style={styles.proItemSub}>Try new things before everyone else</Text>
+                  </View>
                 </View>
               </View>
-              <Pressable
-                onPress={claimFreeze}
-                disabled={buying || (isSubscribed && !freezeClaimable)}
-                style={({ pressed }) => [
-                  styles.freezeBtn,
-                  pressed && { transform: [{ scale: 0.97 }] },
-                  (buying || (isSubscribed && !freezeClaimable)) && { backgroundColor: "#64748B" },
-                ]}
-                testID="buy-freeze-button"
-              >
-                {buying ? (
-                  <ActivityIndicator color="#FFF" size="small" />
-                ) : !isSubscribed ? (
-                  <>
-                    <Ionicons name="star" size={18} color="#FFF" />
-                    <Text style={styles.freezeBtnText}>Unlock monthly freezes with PRO</Text>
-                  </>
-                ) : freezeClaimable ? (
-                  <>
-                    <Ionicons name="snow" size={18} color="#FFF" />
-                    <Text style={styles.freezeBtnText}>Claim this month&apos;s freeze</Text>
-                  </>
-                ) : (
-                  <Text style={styles.freezeBtnText}>Claimed — next one next month ❄️</Text>
-                )}
-              </Pressable>
+
+              {isSubscribed ? (
+                <Pressable
+                  onPress={claimFreeze}
+                  disabled={buying || !freezeClaimable}
+                  style={({ pressed }) => [
+                    styles.freezeBtn,
+                    pressed && { transform: [{ scale: 0.97 }] },
+                    (buying || !freezeClaimable) && { backgroundColor: "#64748B" },
+                  ]}
+                  testID="buy-freeze-button"
+                >
+                  {buying ? (
+                    <ActivityIndicator color="#FFF" size="small" />
+                  ) : freezeClaimable ? (
+                    <>
+                      <Ionicons name="snow" size={18} color="#FFF" />
+                      <Text style={styles.freezeBtnText}>Claim this month&apos;s freeze</Text>
+                    </>
+                  ) : (
+                    <Text style={styles.freezeBtnText}>Claimed — next one next month ❄️</Text>
+                  )}
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/paywall"); }}
+                  style={({ pressed }) => [styles.freezeBtn, pressed && { transform: [{ scale: 0.97 }] }]}
+                  testID="buy-freeze-button"
+                >
+                  <Ionicons name="star" size={18} color="#FFF" />
+                  <Text style={styles.freezeBtnText}>Go PRO — $2.99/month</Text>
+                </Pressable>
+              )}
             </LinearGradient>
 
-            <Text style={styles.sectionTitle}>Badges</Text>            <View style={styles.badgeGrid}>
+            <Text style={styles.sectionTitle}>Badges</Text>
+            <View style={styles.badgeGrid}>
               {badges.map((b) => (
                 <View key={b.key} style={[styles.badge, !b.unlocked && styles.badgeLocked]}>
                   <Text style={[styles.badgeEmoji, !b.unlocked && { opacity: 0.3 }]}>{b.emoji}</Text>
@@ -586,19 +634,23 @@ const styles = StyleSheet.create({
   confirmGhost: { paddingVertical: spacing.md, minHeight: 44, justifyContent: "center" },
   confirmGhostText: { color: colors.onSurfaceMuted, fontWeight: "700" },
 
-  freezeCard: {
-    marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.lg,
-    borderWidth: 2, borderColor: "#BFDBFE",
+  proCard: {
+    borderRadius: radius.lg, padding: spacing.md, borderWidth: 2, borderColor: "rgba(255,255,255,0.7)",
   },
-  freezeHeader: { flexDirection: "row", alignItems: "center" },
-  freezeTitle: { fontSize: 17, fontWeight: "800", color: "#0C4A6E" },
-  freezeSub: { fontSize: 12, color: "#075985", marginTop: 4, lineHeight: 17 },
-  freezeCount: {
-    backgroundColor: "#FFF", borderRadius: radius.lg, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm,
-    alignItems: "center", borderWidth: 2, borderColor: "#BFDBFE",
+  proHeader: { flexDirection: "row", alignItems: "center" },
+  proCardTitle: { fontSize: 17, fontWeight: "800", color: "#0C4A6E" },
+  proCardSub: { fontSize: 12, color: "#075985", marginTop: 4, lineHeight: 17 },
+  proChip: {
+    backgroundColor: "#FBBF24", borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: "#D97706",
   },
-  freezeCountVal: { fontSize: 24, fontWeight: "800", color: "#0369A1" },
-  freezeCountLabel: { fontSize: 10, fontWeight: "700", color: "#075985" },
+  proChipText: { fontSize: 11, fontWeight: "800", color: "#7C2D12", letterSpacing: 0.5 },
+  proList: { marginTop: spacing.md, gap: spacing.sm },
+  proItem: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  proItemIcon: { fontSize: 20, width: 26, textAlign: "center" },
+  proItemTitle: { fontSize: 14, fontWeight: "800", color: "#0C4A6E" },
+  proItemSub: { fontSize: 12, color: "#075985", marginTop: 1, lineHeight: 16 },
+  proItemStrong: { fontWeight: "800", color: "#0C4A6E" },
   freezeBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     backgroundColor: "#0070BA", paddingVertical: 14, borderRadius: radius.pill,
