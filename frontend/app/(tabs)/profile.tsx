@@ -259,6 +259,13 @@ export default function Profile() {
 
               <View style={styles.proList}>
                 <View style={styles.proItem}>
+                  <Text style={styles.proItemIcon}>🚫</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.proItemTitle}>No ads</Text>
+                    <Text style={styles.proItemSub}>Skip the ad after every focus session</Text>
+                  </View>
+                </View>
+                <View style={styles.proItem}>
                   <Text style={styles.proItemIcon}>❄️</Text>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.proItemTitle}>Monthly streak freeze</Text>
@@ -419,7 +426,7 @@ export default function Profile() {
                 <Text style={styles.settingSub}>
                   {isSubscribed
                     ? "PRO active — thanks for supporting the app"
-                    : "Golden PRO badge on the leaderboard + early features"}
+                    : "No ads, monthly freezes, revives + golden badge"}
                 </Text>
               </View>
               <Pressable
