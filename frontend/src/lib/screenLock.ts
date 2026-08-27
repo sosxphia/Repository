@@ -1,11 +1,20 @@
 import { Platform } from "react-native";
 
-let detector: { isScreenLocked: () => Promise<boolean> } | null = null;
-try {
-  // Native module — unavailable on web and in Expo Go
-  detector = require("expo-screen-detector").default ?? require("expo-screen-detector");
-} catch {
-  detector = null;
+type Detector = { isScreenLocked: () => Promise<boolean> };
+
+let cached: Detector | null | undefined;
+
+function getDetector(): Detector | null {
+  if (cached !== undefined) return cached;
+  // Loaded lazily so the screen never fails to render when the native module
+  // is missing (Expo Go, web preview).
+  try {
+    const mod = require("expo-screen-detector");
+    cached = (mod?.default ?? mod) as Detector;
+  } catch {
+    cached = null;
+  }
+  return cached;
 }
 
 /**
@@ -13,7 +22,9 @@ try {
  * Android: keyguard locked). Returns null when we genuinely can't tell.
  */
 export async function isScreenLocked(): Promise<boolean | null> {
-  if (Platform.OS === "web" || !detector?.isScreenLocked) return null;
+  if (Platform.OS === "web") return null;
+  const detector = getDetector();
+  if (!detector?.isScreenLocked) return null;
   try {
     return await detector.isScreenLocked();
   } catch {

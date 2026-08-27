@@ -1,0 +1,23 @@
+{
+  "summary": "Frontend-only verification of the KeepAwake async-rejection fix at /app/frontend/app/(tabs)/timer.tsx:77 and :105. Ran three real end-to-end scenarios in the web preview (viewport 390x844) as ui-test-user (token uitest_token_123): (1) Full 1-min Custom focus session → SessionRecap → tap 'Nice! Back to my tree' (recap-close-button). Recap dismissed cleanly, timer-screen visible again, no red screen, ZERO console errors matching /wake lock/i or 'ExpoKeepAwakeDefaultTag', ZERO uncaught pageerrors, and the new session appeared in focus-history-card (rows 1 → 2). (2) Give-up path in locked-in mode: preset-120 → focus-locked-screen → give-up-button → give-up-confirm-modal → give-up-confirm-button → focus-lock-death-modal rendered with correct 'Oakley II died' text. ZERO wake-lock errors, ZERO pageerrors, timer-screen fully interactive after Dismiss. (3) Stop path (strict_lock temporarily disabled in Mongo so the overlay does not cover Stop): preset-120 → timer-toggle-button (Stop). ZERO wake-lock errors, ZERO pageerrors, all 5 tabs still present and Focus re-navigable. Regression: Focus tab renders fully — timer circle 25:00 (or 120:00 depending on selection), focus-lock-banner, all 4 stacked buttons including 'Pomodoro: 25 mins' (no tomato emoji), focus-streak-card, focus-history-card — and the 5-tab bar (Tree/Goals/Focus/Friends/Profile) stays present across the flow. FIX FULLY VERIFIED — the KeepAwake async red-screen bug reported in iteration_27 is resolved.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "timer.tsx lines 77 and 105 now use `try { KeepAwake.deactivateKeepAwake()?.catch?.(() => {}); } catch {}` — correctly handles both sync throws AND async promise rejections on web. Verified live in all three clearTimer paths (handleComplete → recap, stop, killTree via give-up).",
+    "Consider adding a testID to the FocusLockOverlay's give-up-confirm-modal internal confirm/cancel buttons' text so future tests can select them by label rather than testID only (already present as testIDs — noting for completeness)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "100% — all three KeepAwake scenarios pass with zero wake-lock/pageerror output"},
+  "seed_data_creation": "Temporarily toggled users.strict_lock_enabled=false to test the Stop path (Stop button is hidden behind FocusLockOverlay when strict lock is on); RESTORED to true afterwards. Temporarily set plants.is_dead=false to keep the plant alive after the give-up test kill; final state RESTORED. Deleted the 2 focus_sessions the test created today. Final DB state: plant plant_f950c13f4790 name='Oakley II' is_dead=false xp=272 (started at 270, +2 from the completed 1-min session); ui-test-user has focus_lock_enabled=true, strict_lock_enabled=true, notifications_enabled=true.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Focus tab / KeepAwake bug is fully resolved end-to-end. Plant plant_f950c13f4790 is ALIVE (is_dead=false, xp=272). ui-test-user settings all true. No leftover test focus_sessions for today. Only remaining side-effect from the give-up test: plants.revived_at was already 2026-08-27 before this run (from a prior test); users.last_revive_month is still '2026-08' so revive is capped for August — if a future revive test is needed, unset users.last_revive_month first.",
+  "rca_of_issue": "Iteration 27 identified that KeepAwake.deactivateKeepAwake() returns a Promise on web; the surrounding sync try/catch could not swallow its async rejection, producing an uncaught 'The wake lock with tag ExpoKeepAwakeDefaultTag has not activated yet' red-screen after every clearTimer() (recap close, stop, give-up, unmount). Iteration 28 fix `try { KeepAwake.deactivateKeepAwake()?.catch?.(() => {}); } catch {}` chains .catch() onto the returned Promise (guarded by optional-chaining in case the return value is undefined on some platforms) AND keeps the outer sync try/catch as a belt-and-braces for platforms where the call throws synchronously. Verified: 0 wake-lock console errors and 0 pageerrors across the three real flows above."
+}

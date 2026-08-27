@@ -31,7 +31,7 @@ const GRACE_SECONDS = 60;
 const GUIDE_HIDDEN_KEY = "sprout_hide_guided_access";
 
 const PRESETS = [
-  { label: "Pomodoro 🍅: 25 mins", minutes: 25 },
+  { label: "Pomodoro: 25 mins", minutes: 25 },
   { label: "1 hr", minutes: 60 },
   { label: "2 hr", minutes: 120 },
 ];
@@ -74,7 +74,7 @@ export default function Timer() {
   useEffect(() => {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      KeepAwake.deactivateKeepAwake().catch(() => {});
+      try { KeepAwake.deactivateKeepAwake()?.catch?.(() => {}); } catch {}
     };
   }, []);
 
@@ -102,7 +102,7 @@ export default function Timer() {
     setLockedOpen(false);
     endAtRef.current = null;
     if (intervalRef.current) clearInterval(intervalRef.current);
-    KeepAwake.deactivateKeepAwake().catch(() => {});
+    try { KeepAwake.deactivateKeepAwake()?.catch?.(() => {}); } catch {}
     stopSessionNotifications();
   };
 
@@ -202,7 +202,7 @@ export default function Timer() {
     lockedAwayRef.current = false;
     const endAt = Date.now() + minutes * 60 * 1000;
     endAtRef.current = endAt;
-    KeepAwake.activateKeepAwakeAsync().catch(() => {});
+    try { KeepAwake.activateKeepAwakeAsync().catch(() => {}); } catch {}
     startSessionNotifications(minutes, endAt);
     if (intervalRef.current) clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => {

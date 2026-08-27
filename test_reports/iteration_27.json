@@ -1,0 +1,31 @@
+{
+  "summary": "Frontend-only Focus tab repair verification for Sproutly. VERIFIED: (1) Bottom tab bar shows all 5 tabs (Tree/Goals/Focus/Friends/Profile), Focus tab renders fully with timer 25:00, focus-lock-banner, all 4 preset buttons (Custom, 'Pomodoro: 25 mins' with NO tomato emoji, 1 hr, 2 hr), focus-streak-card, focus-history-card. (2) No console errors from expo-screen-detector / screenLock — code inspection confirms require() sits inside getDetector() (lazy, cached, try/catched at /app/frontend/src/lib/screenLock.ts:12). (3) Full session flow works end-to-end: Custom → 'Start 1 min' → focus-locked-screen overlay → after 1 min the session-recap-screen shows correctly (+2 XP, 1 min focused, streak 1, 1 min today, sapling stage) → recap-close-button dismisses cleanly, timer-screen re-visible, new row appears in focus-history-card. (4) Settings cog on Profile (testID 'settings-cog-button') opens the settings sheet with Notifications / Focus Lock / Locked-in mode switches. (5) 5-tab layout in _layout.tsx is correct with height 60 + safe-area inset; nothing there would hide the Focus tab. NEW BUG FOUND: KeepAwake.deactivateKeepAwake() at timer.tsx:77 and :105 is wrapped in a SYNC try/catch but on web it returns a Promise that rejects asynchronously — an uncaught 'The wake lock with tag ExpoKeepAwakeDefaultTag has not activated yet' error surfaced as a red screen after the recap closed. This is a real regression on web preview / could surface in Expo Go if the wake lock never activated. Deprecated packages detected: none new (expo-av / expo-barcode-scanner / expo-background-fetch not present). Give-up (kill tree) flow was NOT re-tested to avoid modifying the seeded ALIVE plant per cleanup instructions.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/(tabs)/timer.tsx", "issue": "KeepAwake.deactivateKeepAwake() returns a Promise on web; the surrounding sync try/catch cannot catch its async rejection, producing an uncaught 'The wake lock with tag ExpoKeepAwakeDefaultTag has not activated yet' red-screen after Session Recap dismissal (and any other clearTimer path). Fix: KeepAwake.deactivateKeepAwake()?.catch?.(() => {}) at both timer.tsx:77 and timer.tsx:105.", "testID": "timer-screen", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "expo-keep-awake", "issue": "Async promise rejection not handled — see ui_bugs. Reference: /app/frontend/app/(tabs)/timer.tsx:77 and :105."}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "In /app/frontend/app/(tabs)/timer.tsx, change both `try { KeepAwake.deactivateKeepAwake(); } catch {}` (lines 77 and 105) to `try { KeepAwake.deactivateKeepAwake()?.catch?.(() => {}); } catch {}` so the async wake-lock rejection is swallowed and no red screen appears after clearTimer / handleComplete."
+  ],
+  "critical_code_review_comments": [
+    "screenLock.ts lazy require pattern is correct — the require sits inside getDetector() with try/catch and cached=null on failure; no top-level side-effects.",
+    "_layout.tsx correctly declares 5 Tabs.Screen entries and computes tabBarStyle.height = 60 + bottomInset with paddingBottom = safe-area bottom inset — nothing about the layout would hide the Focus tab on small devices or Android with a gesture bar.",
+    "PRESETS in timer.tsx line 33-37: 'Pomodoro: 25 mins' is clean (no tomato emoji) — matches the stated fix.",
+    "Recap close path (setRecap(null)) correctly restores the timer screen without a black-screen residue."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "90% (Focus tab fully verified; give-up flow not re-run per cleanup constraints; KeepAwake async red-screen is a new bug)"},
+  "seed_data_creation": "None — used existing ui-test-user / uitest_token_123. Ran ONE 1-min focus session (session_id will appear in today's history for ui-test-user). No plant kill / revive performed. No settings mutated. Plant plant_f950c13f4790 remains ALIVE.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After the KeepAwake fix, re-run: (a) open Focus tab, start 1-min Custom session, wait for recap, tap recap-close-button, confirm NO red screen appears and timer-screen is visible. (b) confirm no console error 'The wake lock with tag ExpoKeepAwakeDefaultTag has not activated yet'. Original Focus-tab-missing bug is fully resolved on web preview. Give-up flow (killTree) intentionally not exercised — verify separately then restore plant to ALIVE if killed.",
+  "rca_of_issue": "Original user report ('Focus tab is not there anymore'): Root cause was almost certainly a top-level import of expo-screen-detector inside screenLock.ts which threw synchronously in environments where the native module was missing (Expo Go, web preview), breaking the entire timer.tsx bundle and thus removing the Focus route. Main-agent fix (lazy require inside getDetector() with try/catch and cached=null) is correct and verified. RESIDUAL bug found in the fix set: KeepAwake.deactivateKeepAwake() is a Promise on web — the current sync try/catch cannot suppress its async rejection, so any clearTimer call (recap close, stop, unmount) risks an uncaught-error red-screen on web / Expo Go. Reproduction: log in with uitest_token_123, tap Focus, tap Custom, enter 1, tap 'Start 1 min', wait 1 min, tap 'Nice! Back to my tree' on the recap — an 'Uncaught Error: The wake lock with tag ExpoKeepAwakeDefaultTag has not activated yet' red screen appears at app/(tabs)/timer.tsx:105:21. Mitigation: chain `.catch?.(() => {})` onto the deactivate call as described in action_items."
+}
