@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect } from "react";
+import React, { createContext, useCallback, useContext, useEffect } from "react";
 import { Platform } from "react-native";
 import Purchases, { LOG_LEVEL } from "react-native-purchases";
 import type { CustomerInfo, PurchasesPackage } from "react-native-purchases";
@@ -55,10 +55,27 @@ function useSubscriptionContext() {
     };
   }, [queryClient]);
 
+  // Bind the RevenueCat user to our backend user id on demand, so a slow or missed
+  // logIn at startup never blocks a purchase.
+  const bindIdentity = useCallback(
+    async (userId: string) => {
+      if (!rcEnabled || !userId) return false;
+      try {
+        const info = (await Purchases.getCustomerInfo()).originalAppUserId;
+        if (!info.startsWith("$RCAnonymousID:")) return true;
+        const { customerInfo } = await Purchases.logIn(userId);
+        queryClient.setQueryData(["revenuecat", "customer-info"], customerInfo);
+        return !customerInfo.originalAppUserId.startsWith("$RCAnonymousID:");
+      } catch (e) {
+        console.warn("[RevenueCat] bindIdentity failed:", e);
+        return false;
+      }
+    },
+    [queryClient],
+  );
+
   const purchaseMutation = useMutation({
     mutationFn: async (packageToPurchase: PurchasesPackage) => {
-      const id = (await Purchases.getCustomerInfo()).originalAppUserId;
-      if (id.startsWith("$RCAnonymousID:")) throw new Error("identity_not_ready");
       const { customerInfo } = await Purchases.purchasePackage(packageToPurchase);
       return customerInfo;
     },
@@ -85,6 +102,7 @@ function useSubscriptionContext() {
     offerings: offeringsQuery.data,
     isSubscribed,
     identityReady,
+    bindIdentity,
     isLoading: customerInfoQuery.isLoading || offeringsQuery.isLoading,
     purchase: purchaseMutation.mutateAsync,
     restore: restoreMutation.mutateAsync,

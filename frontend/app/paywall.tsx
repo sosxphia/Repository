@@ -7,6 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import type { PurchasesPackage } from "react-native-purchases";
 import { useSubscription } from "@/src/lib/revenuecat";
+import { useAuth } from "@/src/context/AuthContext";
 import { colors, spacing, radius } from "@/src/lib/theme";
 
 const PERKS = [
@@ -18,8 +19,9 @@ const PERKS = [
 
 export default function Paywall() {
   const router = useRouter();
-  const { offerings, isSubscribed, isLoading, identityReady, purchase, restore, isPurchasing, isRestoring } =
+  const { offerings, isSubscribed, isLoading, purchase, restore, bindIdentity, isPurchasing, isRestoring } =
     useSubscription();
+  const { user } = useAuth();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,11 +35,13 @@ export default function Paywall() {
     setError(null);
     if (!monthly) return;
     try {
+      // Make sure the account is linked first — this used to block the button while "syncing"
+      if (user?.user_id) await bindIdentity(user.user_id);
       await purchase(monthly);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       if (e?.userCancelled) return;
-      setError(e?.message === "identity_not_ready" ? "Sign-in is still syncing — try again in a moment." : String(e?.message || e));
+      setError(String(e?.message || e));
     }
   };
 
@@ -88,8 +92,8 @@ export default function Paywall() {
           <>
             <Pressable
               onPress={() => { Haptics.selectionAsync(); setConfirmOpen(true); }}
-              style={[styles.buyBtn, (!identityReady || isPurchasing) && { opacity: 0.6 }]}
-              disabled={!identityReady || isPurchasing}
+              style={[styles.buyBtn, isPurchasing && { opacity: 0.6 }]}
+              disabled={isPurchasing}
               testID="paywall-buy-button"
             >
               {isPurchasing ? (
@@ -98,9 +102,6 @@ export default function Paywall() {
                 <Text style={styles.buyText}>Go PRO — {price}/month</Text>
               )}
             </Pressable>
-            {!identityReady && (
-              <Text style={styles.warn}>Syncing your account… hold on a second.</Text>
-            )}
             {__DEV__ && (
               <Text style={styles.simulated}>
                 Preview mode: purchases here are simulated test-store purchases.
